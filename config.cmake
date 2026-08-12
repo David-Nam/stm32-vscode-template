@@ -1,5 +1,6 @@
 # Project configuration. This is the only file you should need to edit.
-# After changing MCU or BOARD, run: python3 tools/setup.py
+# After changing MCU or BOARD, run tools/setup.py
+# (python3 tools/setup.py on macOS and Linux, python tools/setup.py on Windows)
 #
 # tools/setup.py both reads and rewrites this file, so keep it to plain
 # single-line set() calls: one per line, no if()/foreach(), and no ')' inside
@@ -8,10 +9,21 @@
 # they are empty) plus EXTRA_LIB_DIRS. Everything else it just reads.
 
 # --- Toolchain -------------------------------------------------------------
-# Leave empty to use whatever arm-none-eabi-gcc is on PATH.
+# Empty means "use whatever arm-none-eabi-gcc is on PATH", which is right when
+# the toolchain was installed by a package manager. Fill it in only when the
+# toolchain lives somewhere PATH does not reach. Forward slashes on every host,
+# Windows included, and no ')' anywhere in the value -- setup.py's parser stops
+# at the first one. Examples:
+#
+#   macOS / Linux, unpacked tarball
+#     set(ARM_TOOLCHAIN_BIN "$ENV{HOME}/.local/opt/arm-gnu-toolchain-14.3.rel1-arm-none-eabi/bin")
+#   Windows, Arm GNU Toolchain installer (default path has parentheses, so
+#   install it somewhere else or use the 8.3 short path C:/PROGRA~2/...)
+#     set(ARM_TOOLCHAIN_BIN "C:/arm-gnu-toolchain/14.3 rel1/bin")
+#
 # Note: Homebrew's arm-none-eabi-gcc ships without newlib, so printf will not
 # link against it. Use an Arm GNU Toolchain release instead.
-set(ARM_TOOLCHAIN_BIN "$ENV{HOME}/.local/opt/arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi/bin")
+set(ARM_TOOLCHAIN_BIN "")
 
 # --- Target ----------------------------------------------------------------
 # Set BOARD to a name from `tools/setup.py --list-boards`, or leave it empty

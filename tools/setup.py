@@ -2,12 +2,18 @@
 """Resolve the STM32 family from config.cmake and wire up the ST submodules.
 
   python3 tools/setup.py               fetch CMSIS + HAL/LL for the configured MCU
+  python3 tools/setup.py doctor        check this machine has the build tools
+  python3 tools/setup.py doctor --fix  ... and record an off-PATH toolchain
   python3 tools/setup.py --dry-run     resolve and print, touch nothing
   python3 tools/setup.py --list-boards
   python3 tools/setup.py pins [UART]   console pin/AF candidates for this MCU
   python3 tools/setup.py add <alias|url>   add an extra library submodule
+
+Windows spells the interpreter `python`, macOS and Linux `python3`.
 """
 
+import glob
+import os
 import re
 import shlex
 import shutil
@@ -23,6 +29,9 @@ CFG = ROOT / "config.cmake"
 LIB = ROOT / "lib"
 INC = ROOT / "inc"
 GH = "https://github.com/STMicroelectronics"
+# Only for the hints this script prints: the Windows installers give you
+# python.exe and no python3.exe.
+PY = "python" if os.name == "nt" else "python3"
 
 # CMSIS-Pack descriptor. This is where the per-device memory map lives: the
 # CMSIS headers only carry base addresses, and FLASH_SIZE there is a runtime
@@ -30,8 +39,12 @@ GH = "https://github.com/STMicroelectronics"
 PACK_URL = "https://www.keil.com/pack/Keil.STM32{fam}xx_DFP.pdsc"
 
 # board -> (mcu, uart, tx, rx, alternate function). Memory comes from the pack.
+# The NUCLEOs list the UART their on-board ST-LINK exposes as a virtual COM
+# port. CoreH743I has no bridge of its own, so its entry is the pair this
+# template was tested on with an external USB-serial adapter; move the adapter
+# or the entry if you wire it somewhere else.
 BOARDS = {
-    "CoreH743I":     ("STM32H743IITx", "USART1", "PA9", "PA10", "7"),
+    "CoreH743I":     ("STM32H743IITx", "UART4",  "PH13", "PH14", "8"),
     "NUCLEO-H743ZI": ("STM32H743ZITx", "USART3", "PD8", "PD9",  "7"),
     "NUCLEO-F411RE": ("STM32F411RETx", "USART2", "PA2", "PA3",  "7"),
     "NUCLEO-G071RB": ("STM32G071RBTx", "USART2", "PA2", "PA3",  "1"),
@@ -370,15 +383,215 @@ def cmd_pins(mcu, want=None):
     print('  set(CONSOLE_AF "8")         set(CONSOLE_RX "PH14")')
 
 
+# --- host tools -------------------------------------------------------------
+#
+# What a README cannot do: look at this machine. Nothing here installs anything
+# or edits your shell profile -- it reports what is missing with the command to
+# fix it, and writes the one path the project owns (ARM_TOOLCHAIN_BIN, plus the
+# copy of it VSCode needs) when the toolchain is installed but off PATH.
+
+HOST = "windows" if os.name == "nt" else "macos" if sys.platform == "darwin" else "linux"
+
+ARM_DOWNLOAD = "https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads"
+
+# tool -> what breaks without it, and how each host installs it.
+TOOLS = [
+    ("git", "everything", {"macos": "xcode-select --install",
+                           "linux": "sudo apt install git",
+                           "windows": "winget install Git.Git"}),
+    ("cmake", "the build", {"macos": "brew install cmake",
+                            "linux": "sudo apt install cmake",
+                            "windows": "winget install Kitware.CMake"}),
+    ("ninja", "the build (CMakePresets.json asks for it)",
+     {"macos": "brew install ninja",
+      "linux": "sudo apt install ninja-build",
+      "windows": "winget install Ninja-build.Ninja"}),
+    ("arm-none-eabi-gcc", "compiling anything",
+     {h: f"{ARM_DOWNLOAD}  (Homebrew's build has no newlib, printf will not link)"
+      for h in ("macos", "linux", "windows")}),
+    ("st-flash", "cmake --build --preset flash",
+     {"macos": "brew install stlink",
+      "linux": "sudo apt install stlink-tools",
+      "windows": "https://github.com/stlink-org/stlink/releases"}),
+    ("st-util", "the VSCode 'Debug (st-util)' configuration",
+     {"macos": "brew install stlink",
+      "linux": "sudo apt install stlink-tools",
+      "windows": "https://github.com/stlink-org/stlink/releases"}),
+    ("openocd", "the VSCode 'Debug (OpenOCD)' configuration",
+     {"macos": "brew install open-ocd",
+      "linux": "sudo apt install openocd",
+      "windows": "https://openocd.org/pages/getting-openocd.html"}),
+]
+NEEDED_TO_BUILD = ("git", "cmake", "ninja", "arm-none-eabi-gcc")
+
+# Where each host's installer puts the Arm toolchain when it is not on PATH.
+# Newest first once sorted, so a machine with several releases gets the latest.
+TOOLCHAIN_GLOBS = {
+    "macos": ["/Applications/ArmGNUToolchain/*/*/bin",
+              "~/.local/opt/arm-gnu-toolchain-*/bin",
+              "/opt/arm-gnu-toolchain-*/bin",
+              "/usr/local/arm-gnu-toolchain-*/bin"],
+    "linux": ["~/.local/opt/arm-gnu-toolchain-*/bin",
+              "/opt/arm-gnu-toolchain-*/bin",
+              "/usr/local/arm-gnu-toolchain-*/bin",
+              "/opt/gcc-arm-none-eabi-*/bin"],
+    "windows": ["C:/Program Files (x86)/Arm GNU Toolchain arm-none-eabi/*/bin",
+                "C:/Program Files/Arm GNU Toolchain arm-none-eabi/*/bin",
+                "~/AppData/Local/Programs/Arm GNU Toolchain arm-none-eabi/*/bin"],
+}
+
+VSCODE_SETTINGS = ROOT / ".vscode" / "settings.json"
+GDB_PATH_LINE = re.compile(
+    r'^[ \t]*(?://[ \t]*)?"cortex-debug\.armToolchainPath".*\n', re.M)
+
+
+def find_toolchain():
+    """(bin directory, is it on PATH). Falls back to the usual install dirs."""
+    found = shutil.which("arm-none-eabi-gcc")
+    if found:
+        return Path(found).parent, True
+    for pattern in TOOLCHAIN_GLOBS[HOST]:
+        for d in sorted(glob.glob(os.path.expanduser(pattern)), reverse=True):
+            if shutil.which("arm-none-eabi-gcc", path=d):
+                return Path(d), False
+    return None, False
+
+
+def has_newlib(bindir):
+    """Homebrew's arm-none-eabi-gcc ships no newlib, so --specs=nano.specs has
+    nothing to link against. Ask gcc where libc_nano.a is: it echoes the bare
+    name back when it cannot find one."""
+    gcc = shutil.which("arm-none-eabi-gcc", path=str(bindir))
+    out = subprocess.run([gcc, "-print-file-name=libc_nano.a"],
+                         capture_output=True, text=True).stdout.strip()
+    return os.path.isabs(out) and Path(out).exists()
+
+
+def cmake_version():
+    out = subprocess.run(["cmake", "--version"], capture_output=True,
+                         text=True).stdout
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+    return tuple(int(g) for g in m.groups()) if m else None
+
+
+def set_vscode_toolchain(bindir, settings=None):
+    """Point Cortex-Debug at an off-PATH toolchain. The setting sits in
+    settings.json as a commented example; swap it for a live one."""
+    settings = settings or VSCODE_SETTINGS
+    if not settings.exists():
+        return False
+    txt = settings.read_text()
+    line = f'  "cortex-debug.armToolchainPath": "{Path(bindir).as_posix()}",\n'
+    if line in txt:
+        return True
+    seen = [0]
+
+    def repl(_):
+        seen[0] += 1
+        return line if seen[0] == 1 else ""     # keep one, drop the examples
+
+    txt, n = GDB_PATH_LINE.subn(repl, txt)
+    if not n:
+        return False
+    settings.write_text(txt)
+    return True
+
+
+def wire_toolchain(bindir, on_path, fix):
+    """Record an off-PATH toolchain where the build and the debugger look.
+
+    Both files are committed, so this only happens when asked for: `doctor`
+    says what it would write, `doctor --fix` writes it.
+    """
+    if on_path:
+        return
+    if ")" in str(bindir):
+        # config.cmake is read back by a line parser that stops at the first
+        # ')', which the default Windows install path is full of.
+        print("      that path contains ')', which config.cmake cannot hold.")
+        print("      Add it to PATH instead, or set the environment variable:")
+        print(f"        ARM_TOOLCHAIN_BIN={bindir}")
+        return
+    posix = Path(bindir).as_posix()
+    if (read_config().get("ARM_TOOLCHAIN_BIN") or [""])[0] == posix:
+        return
+    if not fix:
+        print(f"      run `{PY} tools/setup.py doctor --fix` to write this path")
+        print("      into config.cmake and .vscode/settings.json")
+        return
+    write_config("ARM_TOOLCHAIN_BIN", [posix])
+    print("      wrote ARM_TOOLCHAIN_BIN into config.cmake")
+    if set_vscode_toolchain(bindir):
+        print("      wrote cortex-debug.armToolchainPath into .vscode/settings.json")
+
+
+def check_host(brief=False, fix=False):
+    """Report on the host tools. Returns the list of missing build tools."""
+    if not brief:
+        print(f"host: {HOST}\n")
+    missing = []
+    for tool, purpose, hints in TOOLS:
+        note = ""
+        if tool == "arm-none-eabi-gcc":
+            bindir, on_path = find_toolchain()
+            path = str(bindir) if bindir else None
+            if bindir and not has_newlib(bindir):
+                path, note = None, "found, but it has no newlib"
+            elif bindir and not on_path:
+                note = "not on PATH"
+        else:
+            path = shutil.which(tool)
+            if tool == "cmake" and path:
+                v = cmake_version()
+                if v and v < (3, 21):
+                    path, note = None, f"{'.'.join(map(str, v))} is too old, need 3.21"
+                elif v:
+                    note = ".".join(map(str, v))
+
+        if path and not brief:
+            print(f"  {tool:18s} ok    {path}" + (f"  ({note})" if note else ""))
+        if not path:
+            if tool in NEEDED_TO_BUILD:
+                missing.append(tool)
+            print(f"  {tool:18s} MISSING  {note or 'needed for ' + purpose}")
+            print(f"      {hints[HOST]}")
+        if tool == "arm-none-eabi-gcc" and path:
+            wire_toolchain(bindir, on_path, fix)
+
+    if missing:
+        print(f"\n{len(missing)} tool(s) missing before this can build: "
+              + ", ".join(missing))
+    elif not brief:
+        print("\nall build tools present")
+    return missing
+
+
 # --- submodules ------------------------------------------------------------
 
+def is_registered(rel):
+    """True if the index already carries a gitlink for this path, which it does
+    in every repository generated from the template."""
+    out = subprocess.run(["git", "ls-files", "--stage", "--", rel],
+                         cwd=ROOT, capture_output=True, text=True).stdout
+    return out.startswith("160000")             # git's mode for a submodule
+
+
 def add_submodule(url, path, depth=False, dry=False):
-    rel = path.relative_to(ROOT)
+    rel = path.relative_to(ROOT).as_posix()     # git wants '/' on Windows too
     if path.exists() and any(path.iterdir()):
         print(f"  {rel} already present, skipping")
         return
+    # Cloning without --recurse-submodules leaves the directory empty while the
+    # entry is still in .gitmodules and in the index. `git submodule add` calls
+    # that a conflict, so check it out instead of trying to add it again.
+    if is_registered(rel):
+        print(f"  {rel} registered but empty, checking it out")
+        if not dry:
+            run("git", "submodule", "update", "--init", "--", rel,
+                stdout=subprocess.DEVNULL)
+        return
     cmd = ["git", "submodule", "add"] + (["--depth", "1"] if depth else []) + \
-          ["--", url, str(rel)]
+          ["--", url, rel]
     if dry:
         print(f"  would run: {' '.join(cmd)}")
         return
@@ -496,7 +709,9 @@ def cmd_init(dry):
         if missing:
             print(f"\nconsole not configured yet: {', '.join(missing)}")
             print(f"  the build will not run until these are set. To see what "
-                  f"{mcu} offers:\n    python3 tools/setup.py pins")
+                  f"{mcu} offers:\n    {PY} tools/setup.py pins")
+        # The sources are in place; say so if the machine cannot build them.
+        check_host(brief=True)
     else:
         print(f"dry run done: family {fam}")
 
@@ -518,7 +733,7 @@ def cmd_add(target):
     LIB.mkdir(exist_ok=True)
     add_submodule(url, path, depth=depth)
 
-    rel = str(path.relative_to(ROOT))
+    rel = path.relative_to(ROOT).as_posix()
     dirs = [d for d in cfg.get("EXTRA_LIB_DIRS", []) if d]
     if rel not in dirs:
         write_config("EXTRA_LIB_DIRS", dirs + [rel])
@@ -604,6 +819,34 @@ def self_test():
         pass
     else:
         raise AssertionError("unknown core should have been rejected")
+
+    # Every tool needs an install hint on every host, or check_host raises
+    # KeyError on the very machine that is missing that tool.
+    for tool, _, hints in TOOLS:
+        assert set(hints) == {"macos", "linux", "windows"}, tool
+    assert set(TOOLCHAIN_GLOBS) == {"macos", "linux", "windows"}
+    assert set(NEEDED_TO_BUILD) <= {t[0] for t in TOOLS}
+
+    # The settings.json rewrite collapses the commented examples into one live
+    # setting, and running it again changes nothing.
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        s = Path(tmp) / "settings.json"
+        s.write_text('{\n'
+                     '  // "cortex-debug.armToolchainPath": "/one/bin",\n'
+                     '  // "cortex-debug.armToolchainPath": "C:/two/bin",\n'
+                     '  "cmake.configureOnOpen": false\n}\n')
+        assert set_vscode_toolchain("/x/bin", s)
+        out = s.read_text()
+        assert out.count("cortex-debug.armToolchainPath") == 1, out
+        assert '"cortex-debug.armToolchainPath": "/x/bin",' in out, out
+        assert "cmake.configureOnOpen" in out, out
+        assert set_vscode_toolchain("/x/bin", s) and s.read_text() == out
+        # A path already written must be updated, not duplicated.
+        assert set_vscode_toolchain("/y/bin", s)
+        out = s.read_text()
+        assert out.count("cortex-debug.armToolchainPath") == 1, out
+        assert '"/y/bin"' in out, out
     print("self-test ok")
 
 
@@ -618,6 +861,10 @@ def main():
         if len(args) != 2:
             die("usage: setup.py add <alias|url>")
         cmd_add(args[1])
+    elif args[:1] == ["doctor"]:
+        if args[1:] not in ([], ["--fix"]):
+            die("usage: setup.py doctor [--fix]")
+        sys.exit(1 if check_host(fix=args[1:] == ["--fix"]) else 0)
     elif args[:1] == ["pins"]:
         mcu = (read_config().get("MCU") or [""])[0]
         if not mcu:

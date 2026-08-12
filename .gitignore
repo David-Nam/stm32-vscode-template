@@ -2,7 +2,9 @@
 build/
 compile_commands.json
 
-# C build artifacts (in case anything builds outside build/)
+# C build artifacts (in case anything builds outside build/). Outputs only:
+# *.s and *.a are left out on purpose, they are just as often sources or a
+# vendored library you do want committed.
 *.o
 *.obj
 *.elf
@@ -13,10 +15,6 @@ compile_commands.json
 *.d
 *.lst
 *.list
-*.i
-*.s
-*.a
-*.lib
 
 # CMake
 CMakeCache.txt
@@ -45,12 +43,8 @@ gdb.txt
 !.vscode/launch.json
 !.vscode/settings.json
 !.vscode/extensions.json
-!.vscode/cmake-kits.json
 .vscode/*.log
 *.code-workspace
-
-# Developer documentation
-docs/_plan/
 
 # Editors / IDEs
 .idea/

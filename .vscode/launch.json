@@ -1,4 +1,9 @@
 {
+  // Cortex-Debug is required for all three. The .elf name follows
+  // project(stm32-template ...) in CMakeLists.txt: rename one, rename both.
+  // "configFiles" below is the only family-specific setting in this file --
+  // target/stm32h7x.cfg has to change with the chip. OpenOCD ships the list
+  // under its scripts/target directory.
   "version": "0.2.0",
   "configurations": [
     {

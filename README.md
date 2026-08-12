@@ -2,7 +2,7 @@
 
 [English](README.md) | [한국어](README_KOR.md)
 
-A VSCode + CMake + Make starting point for STM32 firmware. Point `config.cmake`
+A VSCode + CMake + Ninja starting point for STM32 firmware. Point `config.cmake`
 at a chip, run one script, and you get a building, flashing, debuggable project
 with the HAL and LL drivers pulled straight from STMicroelectronics' GitHub as
 submodules.
@@ -23,6 +23,11 @@ confirmed against GitHub with `git ls-remote`, and the memory map, device
 define and core come from the device's CMSIS-Pack. Adding a family that did not
 exist when this was written needs no build-system code change.
 
+The only vendor code committed here is `lib/cmsis-core`, which every family
+shares. The device headers, the HAL/LL drivers and the family's
+`stm32<fam>xx_hal_conf.h` under `inc/` all arrive when you run `setup.py`, so
+a new project never carries another chip's drivers around.
+
 Verified on five parts spanning four cores, changing nothing but `config.cmake`:
 
 | MCU | Core | Flash | RAM |
@@ -42,7 +47,10 @@ does not receive later template changes automatically. See GitHub's
 [template repository documentation](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template).
 
 Use a normal clone of `David-Nam/stm32-vscode-template` only when you intend to
-work on the template itself.
+work on the template itself. Running `setup.py` in such a clone adds
+`lib/cmsis-device-<fam>`, `lib/stm32<fam>xx-hal-driver` and a
+`stm32<fam>xx_hal_conf.h`: those belong to a project, not to the template, so
+keep them out of template commits.
 
 ### From the GitHub website
 
@@ -87,23 +95,29 @@ required.
 
 ### First-time project checklist
 
-1. Install the tools in [Requirements](#requirements).
+1. Install the tools in [Requirements](#requirements), then confirm the machine
+   is ready with `python3 tools/setup.py doctor`.
 2. Configure the target in `config.cmake`. The file ships with `CoreH743I`
    values as a working example; do not assume they match your board. When
    selecting a known `BOARD`, clear `MCU` so `setup.py` can fill it. When
    selecting `MCU` directly, replace or clear the old `BOARD`. Follow
    [Changing chip or board](#changing-chip-or-board) for the complete reset
    list.
-3. Set `ARM_TOOLCHAIN_BIN`, and update the duplicate debugger paths in
-   `.vscode/settings.json` if you use VSCode.
-4. Run `python3 tools/setup.py`, then `make`.
+3. Make `arm-none-eabi-gcc` reachable: on `PATH`, or through
+   `ARM_TOOLCHAIN_BIN`. `setup.py doctor --fix` fills both `config.cmake` and
+   `.vscode/settings.json` in when it finds a toolchain that `PATH` misses.
+4. Run `python3 tools/setup.py`, then `cmake --preset default` and
+   `cmake --build --preset default`.
 5. If you use OpenOCD on a non-H7 target, replace `target/stm32h7x.cfg` in
    `.vscode/launch.json` with the target configuration for that family.
 6. Replace this README's title and overview with information about the new
    firmware project, keeping whichever setup notes its users still need.
 7. Optionally rename `project(stm32-template ...)` in `CMakeLists.txt`. If you
    do, also change the `.elf` paths in `.vscode/launch.json`.
-8. Commit the configured `config.cmake`, `.gitmodules`, submodule entries and
+8. Replace `LICENSE` with your project's own, or delete it if the project is
+   not published. The template is MIT; a repository generated from it is
+   yours, and the vendor submodules keep their own licenses either way.
+9. Commit the configured `config.cmake`, `.gitmodules`, submodule entries and
    generated family HAL configuration under `inc/` as part of your project.
 
 Template updates are not synced into generated repositories. Treat this as a
@@ -113,17 +127,21 @@ branches directly is usually unhelpful because their histories are unrelated.
 
 ## Requirements
 
-The commands below target macOS on Apple silicon. The CMake project itself can
-be used on other hosts, but install equivalent versions of Git, Python 3,
-CMake, Make, the Arm GNU Toolchain and your debug probe tools, then update the
-toolchain/debugger paths. On Windows, WSL or another Unix-like shell is the
-least-friction path for the supplied `Makefile` and shell helper.
+macOS, Linux and Windows all need the same six things: Git, Python 3, CMake
+3.21 or newer, Ninja, the Arm GNU Toolchain, and the tools for your debug
+probe. There is no Makefile and no shell script in the build path — every
+command below is the same on all three hosts.
 
 **Arm GNU Toolchain.** Homebrew's `arm-none-eabi-gcc` will not do: it ships
-without newlib, so `printf` does not link. Use an official Arm release.
+without newlib, so `printf` does not link. Use an official
+[Arm release](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads).
+
+macOS:
 
 ```sh
-brew install --cask gcc-arm-embedded          # needs sudo for the .pkg
+brew install --cask gcc-arm-embedded    # needs sudo for the .pkg
+brew install cmake ninja stlink         # stlink gives you st-flash and st-util
+brew install open-ocd                   # optional, only for OpenOCD debugging
 ```
 
 or, without sudo, unpack the tarball of the same release:
@@ -135,31 +153,70 @@ curl -LO "https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-ar
 tar xf arm-gnu-toolchain-$V-darwin-arm64-arm-none-eabi.tar.xz
 ```
 
-Then point `ARM_TOOLCHAIN_BIN` in `config.cmake` at its `bin` directory, or add
-that directory to `PATH` and leave the variable empty.
-
-**Everything else:**
+Linux (Debian/Ubuntu; the tarball above works too, with the
+`x86_64-arm-none-eabi` build):
 
 ```sh
-brew install cmake stlink       # stlink gives you st-flash and st-util
-brew install open-ocd           # optional, only for OpenOCD debugging
+sudo apt install git python3 cmake ninja-build stlink-tools
+sudo apt install openocd                # optional
+```
+
+Windows: install Git, Python 3, CMake and Ninja (`winget`, Chocolatey or the
+official installers), and the Arm toolchain from the link above. Tick the
+installer's "Add path to environment variable" box — the default install
+directory contains `Program Files (x86)`, and a `)` inside a `set()` value is
+one of the few things `config.cmake` cannot carry. `st-flash`/`st-util` come
+from the [stlink releases](https://github.com/stlink-org/stlink/releases).
+PowerShell and cmd are both fine; WSL works but is not required.
+
+**Pointing CMake at the toolchain.** In order of preference: put its `bin`
+directory on `PATH` and leave `ARM_TOOLCHAIN_BIN` empty, or export
+`ARM_TOOLCHAIN_BIN` as an environment variable, or set it in `config.cmake`.
+The environment variable is the one to use when you do not want your own paths
+in a committed file.
+
+VSCode users also want the debugger extension:
+
+```sh
 code --install-extension marus25.cortex-debug
 ```
 
-`python3`, `git` and `make` are also required. The first `setup.py` run needs
-network access to inspect ST repositories, download the CMSIS-Pack data and
-fetch submodules. Builds are offline after setup.
+**Checking the machine.** `setup.py doctor` answers "is this host ready?"
+without building anything: it detects the OS, looks for each tool, verifies
+that CMake is new enough and that the toolchain actually ships newlib, and
+prints the install command for whatever is missing. It exits non-zero when a
+tool the build needs is absent, so CI can use it too.
+
+```sh
+python3 tools/setup.py doctor           # report only
+python3 tools/setup.py doctor --fix     # also record an off-PATH toolchain
+```
+
+If the toolchain is installed somewhere `PATH` does not reach, `doctor` finds
+it in the usual install directories for the host and `--fix` writes that path
+into `config.cmake` and `.vscode/settings.json` for you. The write needs
+`--fix` because both files are committed; a plain `doctor` never edits
+anything. It installs nothing and never touches `PATH`, your shell profile or
+the registry — those stay yours.
+
+The first `setup.py` run needs network access to inspect ST repositories,
+download the CMSIS-Pack data and fetch submodules. Builds are offline after
+setup.
 
 ## Quick start
 
 ```sh
 git clone --recurse-submodules <your generated repo URL> PROJECT
 cd PROJECT
-$EDITOR config.cmake            # replace the example BOARD/MCU and console values
-python3 tools/setup.py          # fetch submodules, fill in the derived values
-make                            # build
-make flash                      # write it to the chip with st-flash
+$EDITOR config.cmake                    # replace the example BOARD/MCU and console values
+python3 tools/setup.py                  # fetch submodules, fill in the derived values
+cmake --preset default                  # configure, once
+cmake --build --preset default          # build
+cmake --build --preset flash            # write it to the chip with st-flash
 ```
+
+On Windows the interpreter is `python`, not `python3`; the three `cmake` lines
+are identical everywhere.
 
 Then open a serial terminal on the console UART at 115200 8N1 and reset the
 board:
@@ -188,7 +245,7 @@ blank it and run `setup.py` again.
 
 | Variable | Who sets it | Meaning |
 |---|---|---|
-| `ARM_TOOLCHAIN_BIN` | you | `bin` directory of the Arm toolchain. Leave empty to use whatever `arm-none-eabi-gcc` is on `PATH`. |
+| `ARM_TOOLCHAIN_BIN` | you | `bin` directory of the Arm toolchain. Ships empty, which means "use whatever `arm-none-eabi-gcc` is on `PATH`". An environment variable of the same name is also honoured and keeps your own path out of the repository. Forward slashes on every host, and no `)` in the value. |
 
 ### Target
 
@@ -321,18 +378,19 @@ Then regenerate and build:
 ```sh
 python3 tools/setup.py          # fetches the new family, refills the blanks
 python3 tools/setup.py pins     # inspect or verify console pin choices
-make clean && make
+rm -rf build                    # the linker script and board.h are regenerated
+cmake --preset default && cmake --build --preset default
 ```
 
 The old family's submodules stay behind; remove them if you are not coming back
 (see below).
 
-`tools/try_board.sh` does all of this in a throwaway copy, which is the quickest
+`tools/try_board.py` does all of this in a throwaway copy, which is the quickest
 way to check a chip before committing to it:
 
 ```sh
-tools/try_board.sh NUCLEO-F411RE
-tools/try_board.sh "" STM32G071RBTx
+python3 tools/try_board.py NUCLEO-F411RE
+python3 tools/try_board.py "" STM32G071RBTx
 ```
 
 ## Adding libraries
@@ -359,11 +417,14 @@ then drop it from `EXTRA_LIB_DIRS`.
 ## Build, flash, debug
 
 ```sh
-make                # configure if needed, then build
-make clean
-make flash          # st-flash --reset write build/stm32-template.bin <FLASH_ORIGIN>
+cmake --preset default                          # configure; only after config.cmake changes
+cmake --build --preset default                  # build
+cmake --build --preset default --target clean   # or delete build/ for a full reset
+cmake --build --preset flash                    # st-flash --reset write build/stm32-template.bin <FLASH_ORIGIN>
 ```
 
+`CMakePresets.json` holds the generator (Ninja), the build directory and the
+toolchain file, which is what keeps the commands identical on the three hosts.
 Output lands in `build/`: `.elf`, `.hex`, `.bin`, `.map`, the generated linker
 script, and `compile_commands.json`.
 
@@ -371,7 +432,7 @@ The default build type is `Debug`. Without it CMake passes neither `-O` nor
 `-g` and the debugger cannot see a single variable.
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=MinSizeRel     # 11 KB instead of 16 KB
+cmake --preset default -DCMAKE_BUILD_TYPE=MinSizeRel     # 11 KB instead of 16 KB
 ```
 
 `-g` does not carry macro definitions, so `print GPIO_PIN_13` in gdb fails. If
@@ -379,12 +440,15 @@ you want that, build with `-DCMAKE_C_FLAGS_DEBUG="-g3 -O0"`.
 
 ### VSCode
 
-Tasks: **build** (the default build task), **clean**, **flash**, **setup**.
+Tasks: **build** (the default build task, and it configures first), **clean**,
+**flash**, **setup**. They call the same `cmake --preset` commands as the shell,
+so they work on all three hosts; the **setup** task is the only one with a
+Windows variant, because the interpreter is `python` there.
 
 Debugging needs the Cortex-Debug extension. F5 offers:
 
 - **Debug (st-util)** — no extra install, `st-util` comes with `stlink`
-- **Debug (OpenOCD)** — needs `brew install open-ocd`
+- **Debug (OpenOCD)** — needs OpenOCD installed
 - **Attach (st-util, no reset)** — connect to a running target without
   reprogramming it
 
@@ -394,9 +458,11 @@ The supplied OpenOCD launch configuration uses `target/stm32h7x.cfg`. Change
 that file name when the selected target is not an STM32H7. The `st-util`
 configuration does not contain this family-specific setting.
 
-`.vscode/settings.json` repeats the toolchain path that `config.cmake` already
-has, in `cortex-debug.armToolchainPath` and `cortex-debug.gdbPath`. VSCode
-settings cannot read a CMake file, so if you move the toolchain, fix both.
+Cortex-Debug finds `arm-none-eabi-gdb` on `PATH`. If yours is not there, set
+`cortex-debug.armToolchainPath` in `.vscode/settings.json`, where it is left
+commented out with an example: VSCode settings cannot read a CMake file, so
+this path is separate from `ARM_TOOLCHAIN_BIN` and has to be kept in step by
+hand.
 
 ## How the application is put together
 
@@ -477,11 +543,15 @@ map, which is where CubeMX gets it too.
   C/C++ extension will append a host-clang task and steal the default build
   task if you press the Run button on a C file; `C_Cpp.debugShortcut` is off
   here for that reason. Check `git diff` before committing.
+- The console pins for `CoreH743I` are the ones this template was tested with
+  on an external USB-serial adapter, not an on-board bridge. The NUCLEO entries
+  are the UART their ST-LINK exposes as a virtual COM port.
 
 ## License
 
-This repository does not currently declare a project license. Before inviting
-others to use, modify or redistribute this template, choose a license and add a
-`LICENSE` file. Each STMicroelectronics submodule remains governed by the
-license in that upstream repository; a project-level license does not replace
-those vendor licenses.
+MIT, see [LICENSE](LICENSE). Use it in commercial work if you like; the only
+condition is that the copyright notice travels with the copies you distribute.
+
+This covers the template itself. Each STMicroelectronics submodule under `lib/`
+remains governed by the license in its own upstream repository, and a
+project-level license does not replace those vendor licenses.

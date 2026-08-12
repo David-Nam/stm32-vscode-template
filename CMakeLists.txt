@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 3.20)
+# 3.21 for CMakePresets.json version 3, which carries the toolchain file.
+cmake_minimum_required(VERSION 3.21)
 
 include(${CMAKE_CURRENT_LIST_DIR}/config.cmake)
 

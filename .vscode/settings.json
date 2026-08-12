@@ -3,16 +3,22 @@
   "C_Cpp.default.intelliSenseMode": "gcc-arm",
   "C_Cpp.default.cStandard": "c17",
 
-  "cortex-debug.armToolchainPath": "${userHome}/.local/opt/arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi/bin",
-  "cortex-debug.gdbPath": "${userHome}/.local/opt/arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi/bin/arm-none-eabi-gdb",
+  // Cortex-Debug looks for arm-none-eabi-gdb on PATH. If your toolchain is not
+  // on PATH -- the same case that makes you fill in ARM_TOOLCHAIN_BIN in
+  // config.cmake -- uncomment one of these and point it at your own install,
+  // or let `setup.py doctor --fix` write it for you. VSCode settings cannot
+  // read a CMake file, so this path is separate from the one in config.cmake.
+  //
+  // "cortex-debug.armToolchainPath": "${userHome}/.local/opt/arm-gnu-toolchain-14.3.rel1-arm-none-eabi/bin",
+  // "cortex-debug.armToolchainPath": "C:/arm-gnu-toolchain/14.3 rel1/bin",
 
   // The Run/Debug play button on a C file makes the C/C++ extension append a
   // host-clang task to tasks.json and steal the default build task. There is
   // nothing to run on the host here, so turn the button off.
   "C_Cpp.debugShortcut": false,
 
-  "cmake.generator": "Unix Makefiles",
-  "cmake.buildDirectory": "${workspaceFolder}/build",
+  // The generator and the build directory come from CMakePresets.json, so they
+  // are not repeated here.
   "cmake.configureOnOpen": false,
 
   "files.associations": {

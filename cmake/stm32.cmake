@@ -1,9 +1,17 @@
 # Turns the values in config.cmake into sources, include paths and flags.
 # Everything here is derived; nothing is per-family hardcoded.
 
+# Only used to spell the setup command in the messages below the way the host
+# spells it: Windows installs python.exe and no python3.exe.
+if(CMAKE_HOST_WIN32)
+  set(PY python)
+else()
+  set(PY python3)
+endif()
+
 foreach(var FAMILY DEVICE_DEFINE CPU_FLAGS FLASH_ORIGIN FLASH_SIZE RAM_ORIGIN RAM_SIZE)
   if(NOT ${var})
-    message(FATAL_ERROR "${var} is empty in config.cmake. Run: python3 tools/setup.py")
+    message(FATAL_ERROR "${var} is empty in config.cmake. Run: ${PY} tools/setup.py")
   endif()
 endforeach()
 
@@ -20,7 +28,7 @@ find_path(CMSIS_CORE_INC core_cm7.h core_cm4.h core_cm0plus.h core_cm33.h core_c
         ${CMAKE_SOURCE_DIR}/lib/cmsis-core/Include
   NO_DEFAULT_PATH)
 if(NOT CMSIS_CORE_INC)
-  message(FATAL_ERROR "no core_cmX.h under lib/cmsis-core. Run: python3 tools/setup.py")
+  message(FATAL_ERROR "no core_cmX.h under lib/cmsis-core. Run: ${PY} tools/setup.py")
 endif()
 
 # --- Startup and system code ------------------------------------------------
@@ -40,7 +48,7 @@ endforeach()
 file(GLOB HAL_SRC CONFIGURE_DEPENDS ${HAL}/Src/*.c)
 list(FILTER HAL_SRC EXCLUDE REGEX "_template\\.c$")
 if(NOT HAL_SRC)
-  message(FATAL_ERROR "no HAL sources under ${HAL}/Src. Run: python3 tools/setup.py")
+  message(FATAL_ERROR "no HAL sources under ${HAL}/Src. Run: ${PY} tools/setup.py")
 endif()
 
 set(STM32_SOURCES ${STARTUP} ${SYSTEM} ${HAL_SRC})
@@ -59,7 +67,7 @@ foreach(sig TX RX)
       "CONSOLE_${sig}=\"${CONSOLE_${sig}}\" in config.cmake should look like PH13.\n"
       "  Which UART reaches your USB-serial bridge is board wiring, so it cannot\n"
       "  be derived. To list the pins and AF numbers this MCU offers:\n"
-      "    python3 tools/setup.py pins")
+      "    ${PY} tools/setup.py pins")
   endif()
   set(CONSOLE_${sig}_PORT ${CMAKE_MATCH_1})
   set(CONSOLE_${sig}_PIN ${CMAKE_MATCH_2})
