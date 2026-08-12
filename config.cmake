@@ -36,6 +36,11 @@ set(RAM_SIZE "128K")
 # enabled before first access, so do not point at them without adding that.
 set(RAM_REGION "")
 
+# --- Device (filled in by setup.py from the CMSIS-Pack) --------------------
+set(FAMILY "H7")
+set(DEVICE_DEFINE "STM32H743xx")
+set(CPU_FLAGS "-mcpu=cortex-m7" "-mthumb" "-mfpu=fpv5-d16" "-mfloat-abi=hard")
+
 # --- Console ---------------------------------------------------------------
 set(CONSOLE_UART "USART1")
 set(CONSOLE_TX "PA9")
@@ -48,7 +53,3 @@ set(CONSOLE_BAUD "115200")
 # *.c sources, and its Inc/ or Include/ subdirectory is added to the include
 # path. Use this for BSP, example code, FreeRTOS, FatFS, etc.
 set(EXTRA_LIB_DIRS "")
-
-# --- Internal --------------------------------------------------------------
-# Stage 3 derives these from MCU. Hardcoded for now.
-set(CPU_FLAGS -mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard)

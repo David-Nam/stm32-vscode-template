@@ -151,32 +151,75 @@ def fetch_pack(fam):
         return None
 
 
-def pack_memories(root, part):
-    """{name: (start, size)} for `part`, honouring family/subFamily inheritance.
+def pack_device(root, part):
+    """Everything we need about `part`: memory map, device define, core, FPU.
 
-    Two naming conventions are in use: G0/H7 put the full part name in
-    <device Dname=...>, F4 uses a short Dname plus <variant Dvariant=...>.
+    Attributes are inherited down family > subFamily > device, so they have to
+    be accumulated on the way in. Two naming conventions are in use: G0/H7 put
+    the full part name in <device Dname=...>, F4 uses a short Dname plus
+    <variant Dvariant=...>.
     """
     def walk(node, inherited):
-        mems = dict(inherited)
+        info = {k: dict(v) if k == "mem" else v for k, v in inherited.items()}
         for m in node.findall("memory"):
-            mems[m.get("name")] = (int(m.get("start"), 16), int(m.get("size"), 16))
+            info["mem"][m.get("name")] = (int(m.get("start"), 16), int(m.get("size"), 16))
+        for c in node.findall("compile"):
+            if c.get("define"):
+                info["define"] = c.get("define")
+        for p in node.findall("processor"):
+            for key, attr in (("core", "Dcore"), ("fpu", "Dfpu")):
+                if p.get(attr):
+                    info[key] = p.get(attr)
         if node.tag == "device":
             names = [node.get("Dname")] + [v.get("Dvariant") for v in node.findall("variant")]
             if part in names:
-                return mems
+                return info
         for child in node:
             if child.tag in ("family", "subFamily", "device"):
-                hit = walk(child, mems)
+                hit = walk(child, info)
                 if hit is not None:
                     return hit
         return None
 
     for fam in root.iter("family"):
-        hit = walk(fam, {})
+        hit = walk(fam, {"mem": {}})
         if hit is not None:
             return hit
     return None
+
+
+# -mcpu for each core the STM32 range uses.
+CORE_MCPU = {
+    "Cortex-M0": "cortex-m0", "Cortex-M0+": "cortex-m0plus",
+    "Cortex-M3": "cortex-m3", "Cortex-M4": "cortex-m4",
+    "Cortex-M7": "cortex-m7", "Cortex-M33": "cortex-m33",
+    "Cortex-M55": "cortex-m55", "Cortex-M85": "cortex-m85",
+}
+# (core, single/double precision) -> -mfpu. Anything else falls back to
+# -mfpu=auto, which lets gcc derive the unit from -mcpu.
+CORE_FPU = {
+    ("Cortex-M4", "SP"): "fpv4-sp-d16",
+    ("Cortex-M7", "SP"): "fpv5-sp-d16",
+    ("Cortex-M7", "DP"): "fpv5-d16",
+    ("Cortex-M33", "SP"): "fpv5-sp-d16",
+    ("Cortex-M33", "DP"): "fpv5-d16",
+}
+
+
+def cpu_flags(core, fpu):
+    """Compiler flags for a core. `fpu` uses either the current spelling
+    (DP_FPU/SP_FPU/NO_FPU) or the legacy 1/0 that the STM32F4 pack still uses.
+    """
+    if core not in CORE_MCPU:
+        die(f"unknown core {core!r}; set CPU_FLAGS in config.cmake by hand")
+    flags = [f"-mcpu={CORE_MCPU[core]}", "-mthumb"]
+    kind = {"DP_FPU": "DP", "SP_FPU": "SP", "1": "SP"}.get(fpu or "NO_FPU")
+    if not kind:
+        return flags + ["-mfloat-abi=soft"]
+    unit = CORE_FPU.get((core, kind), "auto")
+    if unit == "auto":
+        print(f"  note: no -mfpu mapping for {core}/{kind}, using -mfpu=auto")
+    return flags + [f"-mfpu={unit}", "-mfloat-abi=hard"]
 
 
 def contiguous_size(regions, origin):
@@ -268,40 +311,53 @@ def copy_hal_conf(hal_dir, dry=False):
 # --- commands --------------------------------------------------------------
 
 def resolve_layout(cfg, mcu, fam, dry):
-    """Fill the memory layout in config.cmake from the CMSIS-Pack.
+    """Fill the device layout in config.cmake from the CMSIS-Pack.
 
     Only empty values are written, so anything you set by hand stays put.
     """
-    keys = ("FLASH_ORIGIN", "FLASH_SIZE", "RAM_ORIGIN", "RAM_SIZE")
+    def put(name, val):
+        if (cfg.get(name) or [""])[0]:
+            return
+        print(f"    set {name} = {val if isinstance(val, str) else ' '.join(val)}")
+        if not dry:
+            write_config(name, [val] if isinstance(val, str) else val)
+
+    put("FAMILY", fam)
+    keys = ("FLASH_ORIGIN", "FLASH_SIZE", "RAM_ORIGIN", "RAM_SIZE",
+            "DEVICE_DEFINE", "CPU_FLAGS")
     if all((cfg.get(k) or [""])[0] for k in keys):
-        print("  memory layout already set in config.cmake, leaving it alone")
+        print("  device layout already set in config.cmake, leaving it alone")
         return
 
     part = pack_part(mcu)
-    print(f"  reading memory map for {part} from CMSIS-Pack")
+    print(f"  reading {part} from CMSIS-Pack")
     root = fetch_pack(fam)
-    mems = pack_memories(root, part) if root is not None else None
-    if not mems:
+    info = pack_device(root, part) if root is not None else None
+    if not info:
         if root is not None:
             print(f"  warning: {part} not listed in the pack")
         fs = flash_size(mcu)
-        print(f"  falling back to the part number: flash {fs}. "
-              f"Set RAM_ORIGIN and RAM_SIZE in config.cmake by hand.")
-        if not dry:
-            write_config("FLASH_SIZE", [fs])
+        print(f"  falling back to the part number: flash {fs}. Set RAM_ORIGIN, "
+              f"RAM_SIZE, DEVICE_DEFINE and CPU_FLAGS in config.cmake by hand.")
+        put("FLASH_ORIGIN", "0x08000000")
+        put("FLASH_SIZE", fs)
         return
 
-    for n, (s, sz) in sorted(mems.items(), key=lambda kv: kv[1][0]):
+    for n, (s, sz) in sorted(info["mem"].items(), key=lambda kv: kv[1][0]):
         print(f"      {n:12s} 0x{s:08X}  {kb(sz):>7s}")
     region = (cfg.get("RAM_REGION") or [""])[0] or None
-    f_o, f_s, r_o, r_s, chosen = derive_memory(mems, region)
+    f_o, f_s, r_o, r_s, chosen = derive_memory(info["mem"], region)
     print(f"    flash 0x{f_o:08X} {kb(f_s)}   ram {chosen} 0x{r_o:08X} {kb(r_s)}")
+    print(f"    {info.get('core')}  fpu={info.get('fpu')}  define={info.get('define')}")
 
-    for name, val in [("FLASH_ORIGIN", f"0x{f_o:08X}"), ("FLASH_SIZE", kb(f_s)),
-                      ("RAM_ORIGIN", f"0x{r_o:08X}"), ("RAM_SIZE", kb(r_s))]:
-        if not (cfg.get(name) or [""])[0] and not dry:
-            write_config(name, [val])
-            print(f"    set {name} = {val}")
+    if not info.get("define"):
+        die(f"pack has no compile define for {part}; set DEVICE_DEFINE by hand")
+    put("FLASH_ORIGIN", f"0x{f_o:08X}")
+    put("FLASH_SIZE", kb(f_s))
+    put("RAM_ORIGIN", f"0x{r_o:08X}")
+    put("RAM_SIZE", kb(r_s))
+    put("DEVICE_DEFINE", info["define"])
+    put("CPU_FLAGS", cpu_flags(info.get("core"), info.get("fpu")))
 
 
 def cmd_init(dry):
@@ -431,6 +487,20 @@ def self_test():
     # Single-SRAM part: nothing to choose, nothing to merge.
     f411 = {"Flash": (0x08000000, 0x80000), "SRAM": (0x20000000, 0x20000)}
     assert derive_memory(f411) == (0x08000000, 512 * 1024, 0x20000000, 128 * 1024, "SRAM")
+
+    # Core/FPU spellings seen across the packs, including the legacy "1" that
+    # the STM32F4 pack still uses for "has an FPU".
+    assert cpu_flags("Cortex-M7", "DP_FPU")[-2:] == ["-mfpu=fpv5-d16", "-mfloat-abi=hard"]
+    assert cpu_flags("Cortex-M4", "1")[-2:] == ["-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"]
+    assert cpu_flags("Cortex-M33", "SP_FPU")[-2:] == ["-mfpu=fpv5-sp-d16", "-mfloat-abi=hard"]
+    assert cpu_flags("Cortex-M0+", "NO_FPU") == ["-mcpu=cortex-m0plus", "-mthumb", "-mfloat-abi=soft"]
+    assert cpu_flags("Cortex-M3", None) == ["-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft"]
+    try:
+        cpu_flags("Cortex-A7", "DP_FPU")
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("unknown core should have been rejected")
     print("self-test ok")
 
 
