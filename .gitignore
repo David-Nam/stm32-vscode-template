@@ -1,0 +1,67 @@
+# Build output
+build/
+compile_commands.json
+
+# C build artifacts (in case anything builds outside build/)
+*.o
+*.obj
+*.elf
+*.hex
+*.bin
+*.map
+*.su
+*.d
+*.lst
+*.list
+*.i
+*.s
+*.a
+*.lib
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+_deps/
+
+# STM32CubeMX / STM32CubeIDE (in case CubeMX is used alongside this template)
+*.ioc.bak
+.mxproject
+Debug/
+Release/
+
+# OpenOCD / debugger
+*.log
+gdb.txt
+.gdb_history
+.gdbinit.local
+
+# VSCode (keep shared team configs, ignore personal overrides)
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/extensions.json
+.vscode/*.log
+*.code-workspace
+
+# Developer documentation
+docs/_plan/
+
+# Editors / IDEs
+.idea/
+*.swp
+*~
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Python (tools/setup.py support tooling)
+__pycache__/
+*.pyc
+.venv/
+venv/
