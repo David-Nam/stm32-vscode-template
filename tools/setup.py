@@ -4,6 +4,7 @@
   python3 tools/setup.py               fetch CMSIS + HAL/LL for the configured MCU
   python3 tools/setup.py --dry-run     resolve and print, touch nothing
   python3 tools/setup.py --list-boards
+  python3 tools/setup.py pins [UART]   console pin/AF candidates for this MCU
   python3 tools/setup.py add <alias|url>   add an extra library submodule
 """
 
@@ -12,6 +13,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -276,6 +278,98 @@ def kb(n):
     return f"{n // 1024}K"
 
 
+# --- console pin candidates, from ST's open pin data ------------------------
+#
+# Which UART is wired to the USB-serial bridge is a board decision, so nothing
+# can derive it. What can be derived is the pin and alternate-function number
+# for each choice, which is the part people otherwise dig out of a datasheet.
+
+PINDATA = "https://raw.githubusercontent.com/STMicroelectronics/STM32_open_pin_data/master/mcu"
+PINDATA_TREE = ("https://api.github.com/repos/STMicroelectronics/"
+                "STM32_open_pin_data/git/trees/master:mcu")
+UART_SIG = re.compile(r"^(LPUART\d+|US?ART\d+)_(TX|RX)$")
+
+
+def fetch(url, as_json=False):
+    req = urllib.request.Request(url, headers={"User-Agent": "stm32-template-setup"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        raw = r.read()
+    if as_json:
+        import json
+        return json.loads(raw)
+    root = ET.fromstring(raw)
+    for el in root.iter():                      # drop the xmlns noise
+        el.tag = el.tag.rsplit("}", 1)[-1]
+    return root
+
+
+def pin_name(raw):
+    """Canonical pin name out of ST's spelling, which carries the boot/debug
+    role along: "PB3 (JTDO/TRACESWO)" -> "PB3". Power and reset pins drop out.
+    """
+    m = re.match(r"^(P[A-Z]\d+)\b", (raw or "").strip())
+    return m.group(1) if m else None
+
+
+def pindata_file(part):
+    """Find the pin-data file for a part. Names are sometimes patterns that
+    stand for several parts, e.g. STM32C031C(4-6)Tx covers C4 and C6."""
+    names = [e["path"] for e in fetch(PINDATA_TREE, as_json=True)["tree"]
+             if e["path"].endswith(".xml")]
+    if f"{part}.xml" in names:
+        return f"{part}.xml"
+    for name in names:
+        pat = "".join(
+            "(?:" + "|".join(re.escape(a) for a in tok[1:-1].split("-")) + ")"
+            if tok.startswith("(") else re.escape(tok)
+            for tok in re.split(r"(\([^)]*\))", name[:-4]))
+        if re.fullmatch(pat, part, re.I):
+            return name
+    die(f"{part} is not in ST's open pin data")
+
+
+def cmd_pins(mcu, want=None):
+    part = pack_part(mcu)
+    print(f"console pin candidates for {part}"
+          + (f", {want} only" if want else "") + "\n")
+    mcu_xml = fetch(f"{PINDATA}/{urllib.parse.quote(pindata_file(part))}")
+
+    on_package = {n for n in (pin_name(p.get("Name")) for p in mcu_xml.findall("Pin")) if n}
+    gpio = next((ip.get("Version") for ip in mcu_xml.findall("IP")
+                 if ip.get("Name") == "GPIO"), None)
+    if not gpio:
+        die(f"{part} has no GPIO IP entry in the pin data")
+    modes = fetch(f"{PINDATA}/IP/GPIO-{urllib.parse.quote(gpio)}_Modes.xml")
+
+    found = {}
+    for pin in modes.findall("GPIO_Pin"):
+        name = pin_name(pin.get("Name"))
+        if not name or name not in on_package:
+            continue
+        for sig in pin.findall("PinSignal"):
+            m = UART_SIG.match(sig.get("Name") or "")
+            af = sig.find("SpecificParameter/PossibleValue")
+            # Value looks like GPIO_AF8_UART4. The number is not positional:
+            # on STM32H743, UART4 is AF8 on PH13 but AF6 on PA12.
+            n = re.match(r"GPIO_AF(\d+)_", af.text or "") if af is not None else None
+            if m and n:
+                # A pin can be listed more than once when the family file
+                # carries remap variants; the pair is what matters.
+                found.setdefault(m.group(1), {"TX": set(), "RX": set()})
+                found[m.group(1)][m.group(2)].add((name, n.group(1)))
+
+    for inst in sorted(found):
+        if want and inst != want.upper():
+            continue
+        for role in ("TX", "RX"):
+            pins = " ".join(f"{p}(AF{af})" for p, af in sorted(found[inst][role]))
+            print(f"  {inst if role == 'TX' else '':10s} {role} {pins}")
+        print()
+    print("Pick a TX/RX pair that shares an AF number and put it in config.cmake:")
+    print('  set(CONSOLE_UART "UART4")   set(CONSOLE_TX "PH13")')
+    print('  set(CONSOLE_AF "8")         set(CONSOLE_RX "PH14")')
+
+
 # --- submodules ------------------------------------------------------------
 
 def add_submodule(url, path, depth=False, dry=False):
@@ -394,6 +488,15 @@ def cmd_init(dry):
         n_hal = len(list(hal_dir.glob("Src/*_hal_*.c")))
         n_ll = len(list(hal_dir.glob("Src/*_ll_*.c")))
         print(f"done: family {fam}, {n_hal} HAL sources, {n_ll} LL sources")
+        # Which UART reaches a USB-serial bridge is wiring, not a chip fact, so
+        # say so here rather than letting the build fail on an empty pin later.
+        cfg = read_config()
+        missing = [k for k in ("CONSOLE_UART", "CONSOLE_TX", "CONSOLE_RX", "CONSOLE_AF")
+                   if not (cfg.get(k) or [""])[0]]
+        if missing:
+            print(f"\nconsole not configured yet: {', '.join(missing)}")
+            print(f"  the build will not run until these are set. To see what "
+                  f"{mcu} offers:\n    python3 tools/setup.py pins")
     else:
         print(f"dry run done: family {fam}")
 
@@ -515,6 +618,11 @@ def main():
         if len(args) != 2:
             die("usage: setup.py add <alias|url>")
         cmd_add(args[1])
+    elif args[:1] == ["pins"]:
+        mcu = (read_config().get("MCU") or [""])[0]
+        if not mcu:
+            die("set MCU in config.cmake first")
+        cmd_pins(mcu, args[1] if len(args) > 1 else None)
     elif args in ([], ["--dry-run"]):
         cmd_init(dry=bool(args))
     else:

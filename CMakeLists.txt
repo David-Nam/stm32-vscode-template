@@ -38,4 +38,4 @@ add_custom_target(flash
   COMMAND st-flash --reset write ${PROJECT_NAME}.bin ${FLASH_ORIGIN}
   DEPENDS ${PROJECT_NAME}.elf
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-  COMMENT "st-flash write ${PROJECT_NAME}.bin ${FLASH_ORIGIN}")
+  COMMENT "st-flash --reset write ${PROJECT_NAME}.bin ${FLASH_ORIGIN}")

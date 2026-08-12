@@ -55,7 +55,11 @@ set(STM32_INCLUDES
 # Split P<port><number> into the two halves the HAL macros need.
 foreach(sig TX RX)
   if(NOT CONSOLE_${sig} MATCHES "^P([A-Z])([0-9]+)$")
-    message(FATAL_ERROR "CONSOLE_${sig}=\"${CONSOLE_${sig}}\" should look like PH13")
+    message(FATAL_ERROR
+      "CONSOLE_${sig}=\"${CONSOLE_${sig}}\" in config.cmake should look like PH13.\n"
+      "  Which UART reaches your USB-serial bridge is board wiring, so it cannot\n"
+      "  be derived. To list the pins and AF numbers this MCU offers:\n"
+      "    python3 tools/setup.py pins")
   endif()
   set(CONSOLE_${sig}_PORT ${CMAKE_MATCH_1})
   set(CONSOLE_${sig}_PIN ${CMAKE_MATCH_2})
