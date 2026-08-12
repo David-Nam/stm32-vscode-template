@@ -45,6 +45,7 @@ gdb.txt
 !.vscode/launch.json
 !.vscode/settings.json
 !.vscode/extensions.json
+!.vscode/cmake-kits.json
 .vscode/*.log
 *.code-workspace
 

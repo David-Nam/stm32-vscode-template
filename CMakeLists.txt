@@ -2,7 +2,14 @@ cmake_minimum_required(VERSION 3.20)
 
 include(${CMAKE_CURRENT_LIST_DIR}/config.cmake)
 
+# Without this CMake passes no -O and no -g, so the debugger cannot see any
+# variable. Override with -DCMAKE_BUILD_TYPE=MinSizeRel when size matters.
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
+endif()
+
 project(stm32-template C ASM)
+message(STATUS "Build:     ${CMAKE_BUILD_TYPE}")
 
 message(STATUS "MCU:       ${MCU} (${BOARD})")
 message(STATUS "Toolchain: ${CMAKE_C_COMPILER}")
