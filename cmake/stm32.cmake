@@ -52,6 +52,14 @@ set(STM32_INCLUDES
   ${CMAKE_BINARY_DIR})
 
 # Keeps the family out of application code: main.c includes "board.h".
+# Split P<port><number> into the two halves the HAL macros need.
+foreach(sig TX RX)
+  if(NOT CONSOLE_${sig} MATCHES "^P([A-Z])([0-9]+)$")
+    message(FATAL_ERROR "CONSOLE_${sig}=\"${CONSOLE_${sig}}\" should look like PH13")
+  endif()
+  set(CONSOLE_${sig}_PORT ${CMAKE_MATCH_1})
+  set(CONSOLE_${sig}_PIN ${CMAKE_MATCH_2})
+endforeach()
 configure_file(${CMAKE_SOURCE_DIR}/cmake/board.h.in ${CMAKE_BINARY_DIR}/board.h @ONLY)
 
 # --- Extra libraries added by `setup.py add` --------------------------------
@@ -78,6 +86,10 @@ configure_file(${CMAKE_SOURCE_DIR}/cmake/stm32_flash.ld.in ${LINKER_SCRIPT} @ONL
 
 # --- Flags ------------------------------------------------------------------
 set(STM32_DEFINES ${DEVICE_DEFINE} USE_HAL_DRIVER USE_FULL_LL_DRIVER)
+if(HSE_HZ)
+  # stm32*_hal_conf.h guards HSE_VALUE, so this overrides its 25 MHz default.
+  list(APPEND STM32_DEFINES HSE_VALUE=${HSE_HZ}UL)
+endif()
 set(STM32_COMPILE_OPTIONS ${CPU_FLAGS} -ffunction-sections -fdata-sections)
 set(STM32_LINK_OPTIONS
   ${CPU_FLAGS}

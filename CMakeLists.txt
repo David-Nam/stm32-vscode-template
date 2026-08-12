@@ -25,3 +25,10 @@ add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
   COMMAND ${CMAKE_OBJCOPY} -O ihex   ${ELF} ${PROJECT_NAME}.hex
   COMMAND ${CMAKE_OBJCOPY} -O binary ${ELF} ${PROJECT_NAME}.bin
   COMMAND ${CMAKE_SIZE} ${ELF})
+
+# Writes to FLASH_ORIGIN, so an app placed behind a bootloader still lands right.
+add_custom_target(flash
+  COMMAND st-flash --reset write ${PROJECT_NAME}.bin ${FLASH_ORIGIN}
+  DEPENDS ${PROJECT_NAME}.elf
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  COMMENT "st-flash write ${PROJECT_NAME}.bin ${FLASH_ORIGIN}")

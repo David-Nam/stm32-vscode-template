@@ -1,9 +1,12 @@
 BUILD ?= build
 
-.PHONY: all clean
+.PHONY: all clean flash
 
 all: $(BUILD)/Makefile
 	@cmake --build $(BUILD)
+
+flash: all
+	@cmake --build $(BUILD) --target flash
 
 $(BUILD)/Makefile:
 	@cmake -S . -B $(BUILD) -G "Unix Makefiles" \

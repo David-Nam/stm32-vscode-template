@@ -42,11 +42,19 @@ set(DEVICE_DEFINE "STM32H743xx")
 set(CPU_FLAGS "-mcpu=cortex-m7" "-mthumb" "-mfpu=fpv5-d16" "-mfloat-abi=hard")
 
 # --- Console ---------------------------------------------------------------
-set(CONSOLE_UART "USART1")
-set(CONSOLE_TX "PA9")
-set(CONSOLE_RX "PA10")
-set(CONSOLE_AF "7")
+# Pins are written as P<port><number>. CONSOLE_AF is the alternate function
+# number; board.h turns it into GPIO_AF<n>_<uart>.
+set(CONSOLE_UART "UART4")
+set(CONSOLE_TX "PH13")
+set(CONSOLE_RX "PH14")
+set(CONSOLE_AF "8")
 set(CONSOLE_BAUD "115200")
+
+# --- Board clocks ----------------------------------------------------------
+# Crystal fitted on the board, not a property of the chip, so the CMSIS-Pack
+# does not know it. The HAL header defaults to 25 MHz, which is wrong here.
+# Unused until you write SystemClock_Config; wrong values bite there.
+set(HSE_HZ "8000000")
 
 # --- Extra libraries -------------------------------------------------------
 # Added by `tools/setup.py add <alias|url>`. Each directory is scanned for
