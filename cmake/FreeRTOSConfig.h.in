@@ -1,0 +1,68 @@
+/* Generated from cmake/FreeRTOSConfig.h.in -- do not edit the copy in build/.
+ * The heap size comes from config.cmake; the rest is the smallest set of
+ * settings that boots on any STM32. Every option and its default are listed at
+ * https://freertos.org/a00110.html -- add what you turn on here.
+ */
+#pragma once
+
+/* __NVIC_PRIO_BITS, __CORTEX_M and SystemCoreClock are all per-device, and the
+ * settings below need all three. */
+#include "stm32@FAM@xx.h"
+
+@HANDLER_ALIASES@
+
+/* Read when the scheduler starts, so SystemCoreClockUpdate() must have run by
+ * then. Change the clock while the scheduler is running and the tick, and
+ * every delay with it, is off by the same factor. */
+#define configCPU_CLOCK_HZ                      SystemCoreClock
+#define configTICK_RATE_HZ                      1000    /* 1 ms, what the HAL assumes */
+
+/* Task stacks, queues, timers and anything else created at run time come out
+ * of this one array. FREERTOS_HEAP_KB in config.cmake sizes it. */
+#define configTOTAL_HEAP_SIZE                   (@FREERTOS_HEAP_KB@ * 1024)
+#define configSUPPORT_DYNAMIC_ALLOCATION        1
+#define configSUPPORT_STATIC_ALLOCATION         0
+
+#define configMINIMAL_STACK_SIZE                128     /* words, not bytes */
+#define configMAX_PRIORITIES                    5
+#define configUSE_PREEMPTION                    1
+#define configUSE_MUTEXES                       1
+#define configUSE_COUNTING_SEMAPHORES           1
+
+#define configUSE_IDLE_HOOK                     0
+#define configUSE_TICK_HOOK                     1       /* main.c hangs HAL_IncTick on it */
+#define configCHECK_FOR_STACK_OVERFLOW          2       /* main.c parks in the hook */
+
+#define configUSE_TIMERS                        1
+#define configTIMER_TASK_PRIORITY               (configMAX_PRIORITIES - 1)
+#define configTIMER_TASK_STACK_DEPTH            configMINIMAL_STACK_SIZE
+#define configTIMER_QUEUE_LENGTH                8
+
+/* 32-bit ticks: at 1 kHz a 16-bit tick counter wraps every 65 seconds. */
+#define configUSE_16_BIT_TICKS                  0
+
+/* The ARMv8-M ports (M23/M33/M55/M85) refuse to compile without these three.
+ * The older ports ignore them. */
+#define configENABLE_FPU                        1
+#define configENABLE_MPU                        0
+#define configENABLE_TRUSTZONE                  0
+
+/* Interrupt priorities. On Cortex-M a numerically lower value is the higher
+ * priority, and only the top __NVIC_PRIO_BITS of the byte are implemented.
+ * Only handlers at or below configMAX_SYSCALL_INTERRUPT_PRIORITY may call the
+ * FromISR API -- one above it that does trips the kernel's own configASSERT. */
+#define configPRIO_BITS                         __NVIC_PRIO_BITS
+#define configKERNEL_INTERRUPT_PRIORITY         255     /* lowest, for SysTick and PendSV */
+#if __CORTEX_M >= 3
+    #define configMAX_SYSCALL_INTERRUPT_PRIORITY    (5 << (8 - configPRIO_BITS))
+#endif  /* M0/M0+ have no BASEPRI to mask with, so the ports there do not use it */
+
+#define INCLUDE_vTaskDelay                      1
+#define INCLUDE_xTaskDelayUntil                 1
+#define INCLUDE_vTaskSuspend                    1
+#define INCLUDE_xTaskGetSchedulerState          1
+#define INCLUDE_uxTaskGetStackHighWaterMark     1       /* how much stack a task never used */
+
+/* A failed assert is a bug in the caller and not something to ride out. Park
+ * here: the debugger's call stack still shows which check failed. */
+#define configASSERT(x) if ((x) == 0) { taskDISABLE_INTERRUPTS(); for (;;) {} }

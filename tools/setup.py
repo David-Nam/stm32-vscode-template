@@ -29,6 +29,10 @@ CFG = ROOT / "config.cmake"
 LIB = ROOT / "lib"
 INC = ROOT / "inc"
 GH = "https://github.com/STMicroelectronics"
+# RTOS in config.cmake -> the repository holding it. Anything not listed here
+# is left to `setup.py add <url>`; the build only needs a cmake/rtos-<name>.cmake.
+RTOS_REPOS = {"freertos": ("https://github.com/FreeRTOS/FreeRTOS-Kernel",
+                           "freertos-kernel")}
 # Only for the hints this script prints: the Windows installers give you
 # python.exe and no python3.exe.
 PY = "python" if os.name == "nt" else "python3"
@@ -696,6 +700,14 @@ def cmd_init(dry):
     hal_dir = LIB / f"stm32{fam.lower()}xx-hal-driver"
     add_submodule(hal_url, hal_dir, dry=dry)
 
+    rtos = (cfg.get("RTOS") or [""])[0]
+    if rtos in RTOS_REPOS:
+        url, path = RTOS_REPOS[rtos]
+        add_submodule(url, LIB / path, dry=dry)
+    elif rtos and rtos != "none":
+        print(f"  RTOS={rtos} is not one setup.py knows how to fetch. Add its "
+              f"sources with `{PY} tools/setup.py add <url>`.")
+
     if not dry:
         copy_hal_conf(hal_dir)
         n_hal = len(list(hal_dir.glob("Src/*_hal_*.c")))
@@ -825,6 +837,10 @@ def self_test():
     for tool, _, hints in TOOLS:
         assert set(hints) == {"macos", "linux", "windows"}, tool
     assert set(TOOLCHAIN_GLOBS) == {"macos", "linux", "windows"}
+
+    # Fetching an RTOS is pointless without the CMake file that builds it.
+    for name in RTOS_REPOS:
+        assert (ROOT / "cmake" / f"rtos-{name}.cmake").exists(), name
     assert set(NEEDED_TO_BUILD) <= {t[0] for t in TOOLS}
 
     # The settings.json rewrite collapses the commented examples into one live

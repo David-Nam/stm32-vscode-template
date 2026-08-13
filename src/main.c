@@ -7,6 +7,10 @@
  */
 #include <stdio.h>
 #include "board.h"
+#ifdef RTOS_FREERTOS
+#include "FreeRTOS.h"
+#include "task.h"
+#endif
 
 static UART_HandleTypeDef console;
 
@@ -48,11 +52,15 @@ static void console_init(void)
 
 /* The CMSIS startup file aliases every handler to Default_Handler, which is an
  * infinite loop. HAL_Delay and every HAL timeout count on this one, so without
- * it the first HAL_Delay never returns. Add further IRQ handlers here. */
+ * it the first HAL_Delay never returns. Add further IRQ handlers here.
+ * With an RTOS the kernel owns this vector and HAL_IncTick moves to the tick
+ * hook below. */
+#ifndef RTOS_FREERTOS
 void SysTick_Handler(void)
 {
     HAL_IncTick();
 }
+#endif
 
 /* newlib routes printf and puts through here. */
 int _write(int fd, char *data, int len)
@@ -71,10 +79,52 @@ int _write(int fd, char *data, int len)
 /* File scope and volatile so a debugger can watch it when the UART is silent. */
 volatile uint32_t tick;
 
+#ifdef RTOS_FREERTOS
+/* The kernel tick and the HAL tick are the same 1 kHz SysTick interrupt, so
+ * HAL_Delay and every HAL timeout keep working once the scheduler runs. */
+void vApplicationTickHook(void)
+{
+    HAL_IncTick();
+}
+
+/* configCHECK_FOR_STACK_OVERFLOW: this task wrote past its stack. Its own
+ * state is already gone and printing from here would only spread the damage,
+ * so park with the name where a debugger can read it. */
+volatile char *overflowed_task;
+
+void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
+{
+    (void)task;
+    overflowed_task = name;
+    taskDISABLE_INTERRUPTS();
+    for (;;) {
+    }
+}
+
+/* One task prints, on purpose: newlib's printf is not reentrant here, so a
+ * second task calling it needs a mutex around every call. */
+static void hello_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        printf("tick: %lu   heap free: %u\r\n", (unsigned long)++tick,
+               (unsigned)xPortGetFreeHeapSize());
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+#endif
+
 int main(void)
 {
     SystemCoreClockUpdate();
     HAL_Init();
+#ifdef RTOS_FREERTOS
+    /* HAL_Init starts SysTick, but the vector belongs to the kernel now and
+     * its handler only works once the scheduler is up. Park the timer until
+     * vTaskStartScheduler re-arms it. Nothing ticks in between, so anything
+     * that waits on HAL_Delay belongs in a task, not here. */
+    SysTick->CTRL = 0;
+#endif
     console_init();
 
     /* newlib asks _isatty whether stdout is a terminal. nosys says no, so it
@@ -89,8 +139,22 @@ int main(void)
            (unsigned long)SystemCoreClock,
            (unsigned long)HAL_RCC_GetPCLK1Freq());
 
+#ifdef RTOS_FREERTOS
+    /* 512 words of stack: printf is the greedy part. Watch what a task really
+     * uses with uxTaskGetStackHighWaterMark before trimming it. */
+    if (xTaskCreate(hello_task, "hello", 512, NULL, tskIDLE_PRIORITY + 1, NULL) != pdPASS) {
+        startup_error = 2;      /* FREERTOS_HEAP_KB in config.cmake is too small */
+        for (;;) {
+        }
+    }
+    vTaskStartScheduler();
+    startup_error = 3;          /* only reached if the idle task would not fit */
+    for (;;) {
+    }
+#else
     for (;;) {
         HAL_Delay(1000);
         printf("tick: %lu\r\n", (unsigned long)++tick);
     }
+#endif
 }

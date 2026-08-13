@@ -17,6 +17,16 @@ message(STATUS "Toolchain: ${CMAKE_C_COMPILER}")
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/stm32.cmake)
 
+# Each RTOS is one cmake/rtos-<name>.cmake that appends to the STM32_* lists
+# above. "none" leaves the bare main loop in src/main.c.
+if(RTOS AND NOT RTOS STREQUAL "none")
+  if(NOT EXISTS ${CMAKE_CURRENT_LIST_DIR}/cmake/rtos-${RTOS}.cmake)
+    message(FATAL_ERROR "RTOS=\"${RTOS}\" in config.cmake, but there is no "
+                        "cmake/rtos-${RTOS}.cmake to build it with")
+  endif()
+  include(${CMAKE_CURRENT_LIST_DIR}/cmake/rtos-${RTOS}.cmake)
+endif()
+
 file(GLOB APP_SOURCES CONFIGURE_DEPENDS src/*.c)
 
 add_executable(${PROJECT_NAME}.elf ${APP_SOURCES} ${STM32_SOURCES})

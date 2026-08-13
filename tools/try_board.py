@@ -3,11 +3,16 @@
 
   python3 tools/try_board.py NUCLEO-F411RE
   python3 tools/try_board.py "" STM32G071RBTx      # no board entry, MCU only
+  python3 tools/try_board.py NUCLEO-F411RE --flash # ... and write it to the board
 
 Copies the working tree (no lib/, no build/), clears everything setup.py is
 meant to derive, then runs setup.py and a full configure and build. This is the
 fresh-clone path a new user takes, so it catches anything that only works
 because our own working tree is already warm.
+
+--flash writes the result to whatever is on the ST-LINK, so connect the board
+you named. Verifying on hardware this way keeps setup.py's output -- the
+per-chip submodules and inc/ -- out of the template's own working tree.
 
 The copy lands in the system temp directory; set TRY_DIR to put it elsewhere.
 """
@@ -35,8 +40,11 @@ def run(*cmd, cwd):
 
 
 def main():
-    board = sys.argv[1] if len(sys.argv) > 1 else ""
-    mcu = sys.argv[2] if len(sys.argv) > 2 else ""
+    # Positional, so pick the flags out first: BOARD is allowed to be "".
+    flash = "--flash" in sys.argv[1:]
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    board = args[0] if args else ""
+    mcu = args[1] if len(args) > 1 else ""
     if not board and not mcu:
         sys.exit(__doc__)
 
@@ -48,10 +56,12 @@ def main():
                            cwd=ROOT, capture_output=True, text=True,
                            check=True).stdout.split("\n")
     for f in filter(None, files):
-        # lib/ and build/ are the submodules and the build output. .gitmodules
-        # goes with them: this copy has no submodule gitlinks in its index, so
-        # leaving the entries behind would only give setup.py stale paths.
-        if f.startswith(("lib/", "build/")) or f == ".gitmodules":
+        # Everything setup.py produces: the submodules, the build output and the
+        # HAL config it copies into inc/. A hal_conf from another family would
+        # be left alone by setup.py and could hide a bug. .gitmodules goes with
+        # them: this copy has no submodule gitlinks in its index, so leaving the
+        # entries behind would only give setup.py stale paths.
+        if f.startswith(("lib/", "build/", "inc/")) or f == ".gitmodules":
             continue
         (dest / f).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / f, dest / f)
@@ -70,6 +80,8 @@ def main():
     run(sys.executable, "tools/setup.py", cwd=dest)
     run("cmake", "--preset", "default", cwd=dest)
     run("cmake", "--build", "--preset", "default", cwd=dest)
+    if flash:
+        run("cmake", "--build", "--preset", "flash", cwd=dest)
 
 
 if __name__ == "__main__":

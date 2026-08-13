@@ -24,6 +24,10 @@
       "cwd": "${workspaceFolder}",
       "executable": "${workspaceFolder}/build/stm32-template.elf",
       "configFiles": ["interface/stlink.cfg", "target/stm32h7x.cfg"],
+      // Uncomment for the thread list in the debugger's call stack. OpenOCD
+      // reads the kernel's task lists to build it, so it only works with
+      // RTOS=freertos and refuses to start the session without those symbols.
+      // "rtos": "FreeRTOS",
       "runToEntryPoint": "main",
       "preLaunchTask": "build"
     },

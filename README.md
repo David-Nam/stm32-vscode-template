@@ -7,7 +7,7 @@ at a chip, run one script, and you get a building, flashing, debuggable project
 with the HAL and LL drivers pulled straight from STMicroelectronics' GitHub as
 submodules.
 
-The sample application prints "Hello, World!" over a UART.
+The sample application prints "Hello, World!" over a UART, from a FreeRTOS task.
 
 ## What it does for you
 
@@ -23,10 +23,15 @@ confirmed against GitHub with `git ls-remote`, and the memory map, device
 define and core come from the device's CMSIS-Pack. Adding a family that did not
 exist when this was written needs no build-system code change.
 
-The only vendor code committed here is `lib/cmsis-core`, which every family
-shares. The device headers, the HAL/LL drivers and the family's
-`stm32<fam>xx_hal_conf.h` under `inc/` all arrive when you run `setup.py`, so
-a new project never carries another chip's drivers around.
+FreeRTOS comes with it. `RTOS` in `config.cmake` picks `freertos` (the default)
+or `none`, the kernel port follows from the core the same way the compiler flags
+do, and `src/main.c` runs its "Hello, World!" from a task. See
+[RTOS](#rtos).
+
+The only vendor code committed here is `lib/cmsis-core` and `lib/freertos-kernel`,
+neither of which depends on the family. The device headers, the HAL/LL drivers
+and the family's `stm32<fam>xx_hal_conf.h` under `inc/` all arrive when you run
+`setup.py`, so a new project never carries another chip's drivers around.
 
 Verified on five parts spanning four cores, changing nothing but `config.cmake`:
 
@@ -112,6 +117,8 @@ required.
    `.vscode/launch.json` with the target configuration for that family.
 6. Replace this README's title and overview with information about the new
    firmware project, keeping whichever setup notes its users still need.
+   `CLAUDE.md` describes maintaining the template, not your project: replace it
+   with your own notes or delete it.
 7. Optionally rename `project(stm32-template ...)` in `CMakeLists.txt`. If you
    do, also change the `.elf` paths in `.vscode/launch.json`.
 8. Replace `LICENSE` with your project's own, or delete it if the project is
@@ -325,6 +332,31 @@ system clock and a garbled console.
 All three come from the pack. Override `CPU_FLAGS` by hand if you need
 something unusual.
 
+### RTOS
+
+| Variable | Meaning |
+|---|---|
+| `RTOS` | `freertos` (the default) or `none` for a bare `main` loop. |
+| `FREERTOS_HEAP_KB` | Size of the one `heap_4` array every task stack, queue and timer comes out of. |
+
+`setup.py` checks out `lib/freertos-kernel`; the build picks the port out of
+`CPU_FLAGS` on its own — `ARM_CM7/r0p1`, `ARM_CM4F`, `ARM_CM3`, `ARM_CM0`, or the
+non-TrustZone ARMv8-M port for M23/M33/M55/M85. The configure step prints which
+one it took.
+
+`cmake/FreeRTOSConfig.h.in` is generated into `build/FreeRTOSConfig.h` the same
+way `board.h` is, so the heap size and the per-device priority bits follow
+`config.cmake` instead of being pasted per project. Turn options on there.
+
+The kernel owns `SysTick`, and `main.c` hangs `HAL_IncTick` on the tick hook, so
+`HAL_Delay` and every HAL timeout keep working inside tasks. Between `HAL_Init`
+and `vTaskStartScheduler` nothing ticks: init that has to wait belongs in a task.
+
+Another RTOS is a `cmake/rtos-<name>.cmake` that appends to `STM32_SOURCES`,
+`STM32_INCLUDES` and `STM32_DEFINES`, plus that name in `RTOS`. `CMakeLists.txt`
+includes whatever `RTOS` names and nothing else looks at it. Only FreeRTOS ships
+with the template.
+
 ### Extra libraries
 
 | Variable | Meaning |
@@ -499,7 +531,13 @@ for your board.
 **`SysTick_Handler` in `main.c`.** The CMSIS startup file aliases every handler
 to `Default_Handler`, an infinite loop, and the HAL expects the project to call
 `HAL_IncTick`. Without it the first `HAL_Delay` never returns. Add your other
-interrupt handlers alongside it.
+interrupt handlers alongside it. With `RTOS=freertos` the kernel owns that
+vector instead and `vApplicationTickHook` makes the call.
+
+**One task, and it is the one that prints.** newlib's `printf` is not reentrant
+here, so a second task calling it needs a mutex around every call. The task
+prints `xPortGetFreeHeapSize` next to the tick count: that is the number to
+watch when `FREERTOS_HEAP_KB` needs raising.
 
 **`setvbuf(stdout, NULL, _IONBF, 0)`.** newlib asks `_isatty` whether stdout is
 a terminal, `nosys` says no, and stdout would then be fully buffered — nothing
@@ -515,6 +553,7 @@ tell "not running" from "running but the UART is wrong".
 | What | Source |
 |---|---|
 | CMSIS core | `github.com/STMicroelectronics/cmsis-core` |
+| FreeRTOS kernel | `github.com/FreeRTOS/FreeRTOS-Kernel` |
 | Device headers, startup | `github.com/STMicroelectronics/cmsis-device-<fam>` |
 | HAL and LL drivers | `github.com/STMicroelectronics/stm32<fam>xx-hal-driver` |
 | Memory map, device define, core/FPU | `keil.com/pack/Keil.STM32<FAM>xx_DFP.pdsc` |
@@ -546,12 +585,16 @@ map, which is where CubeMX gets it too.
 - The console pins for `CoreH743I` are the ones this template was tested with
   on an external USB-serial adapter, not an on-board bridge. The NUCLEO entries
   are the UART their ST-LINK exposes as a virtual COM port.
+- FreeRTOS is wired up as one non-TrustZone, no-MPU image. A TrustZone project
+  wants the plain `ARM_CM33` port and a secure image of its own, which is a
+  project rather than a switch in `config.cmake`.
 
 ## License
 
 MIT, see [LICENSE](LICENSE). Use it in commercial work if you like; the only
 condition is that the copyright notice travels with the copies you distribute.
 
-This covers the template itself. Each STMicroelectronics submodule under `lib/`
-remains governed by the license in its own upstream repository, and a
-project-level license does not replace those vendor licenses.
+This covers the template itself. Each submodule under `lib/` — the
+STMicroelectronics ones and `freertos-kernel`, which is MIT as well — remains
+governed by the license in its own upstream repository, and a project-level
+license does not replace those vendor licenses.

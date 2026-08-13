@@ -8,7 +8,7 @@ STM32 펌웨어 개발을 바로 시작할 수 있는 VSCode + CMake + Ninja
 드라이버는 STMicroelectronics의 GitHub 저장소에서 submodule로 직접
 가져옵니다.
 
-예제 애플리케이션은 UART로 "Hello, World!"를 출력합니다.
+예제 애플리케이션은 FreeRTOS task에서 UART로 "Hello, World!"를 출력합니다.
 
 ## 자동으로 처리되는 작업
 
@@ -24,8 +24,13 @@ STM32 펌웨어 개발을 바로 시작할 수 있는 VSCode + CMake + Ninja
 정보는 해당 디바이스의 CMSIS-Pack에서 가져옵니다. 이 템플릿을 만든 뒤
 새로운 STM32 패밀리가 추가되더라도 코드 변경 없이 사용할 수 있습니다.
 
-이 저장소에 커밋되어 있는 vendor 코드는 모든 패밀리가 공유하는
-`lib/cmsis-core` 하나뿐입니다. 디바이스 헤더, HAL/LL 드라이버, `inc/` 아래의
+FreeRTOS는 기본으로 들어 있습니다. `config.cmake`의 `RTOS`에서 `freertos`
+(기본값) 또는 `none`을 선택하며, 커널 port는 컴파일러 플래그와 마찬가지로
+코어에서 결정됩니다. `src/main.c`는 "Hello, World!"를 task에서 출력합니다.
+[RTOS](#rtos)를 참고하세요.
+
+이 저장소에 커밋되어 있는 vendor 코드는 패밀리와 무관한 `lib/cmsis-core`와
+`lib/freertos-kernel` 둘뿐입니다. 디바이스 헤더, HAL/LL 드라이버, `inc/` 아래의
 `stm32<fam>xx_hal_conf.h`는 모두 `setup.py`를 실행할 때 받아옵니다. 새
 프로젝트가 다른 칩의 드라이버를 떠안고 다닐 일이 없습니다.
 
@@ -116,7 +121,8 @@ git submodule update --init --recursive
 5. H7이 아닌 타깃에서 OpenOCD를 사용한다면 `.vscode/launch.json`의
    `target/stm32h7x.cfg`를 해당 패밀리용 타깃 설정으로 바꿉니다.
 6. 이 README의 제목과 개요를 새 펌웨어 프로젝트에 맞게 바꾸고, 사용자에게
-   필요한 설정 안내만 유지합니다.
+   필요한 설정 안내만 유지합니다. `CLAUDE.md`는 프로젝트가 아니라 템플릿
+   유지보수에 대한 내용이므로, 프로젝트용 내용으로 바꾸거나 삭제하세요.
 7. 필요하면 `CMakeLists.txt`의 `project(stm32-template ...)` 이름을
    바꿉니다. 이 경우 `.vscode/launch.json`의 `.elf` 경로도 함께 바꿉니다.
 8. `LICENSE`를 프로젝트 자체의 라이선스로 바꾸거나, 공개하지 않는
@@ -334,6 +340,33 @@ system clock이 잘못 계산되고 console 출력이 깨집니다.
 세 값은 모두 pack에서 가져옵니다. 특별한 설정이 필요하면 `CPU_FLAGS`를
 직접 덮어쓸 수 있습니다.
 
+### RTOS
+
+| 변수 | 의미 |
+|---|---|
+| `RTOS` | `freertos`(기본값), 또는 `main` 루프만 쓰려면 `none`. |
+| `FREERTOS_HEAP_KB` | Task stack, queue, timer가 모두 할당되는 `heap_4` 배열 하나의 크기. |
+
+`setup.py`가 `lib/freertos-kernel`을 받아오고, 빌드는 `CPU_FLAGS`에서 port를
+스스로 고릅니다. `ARM_CM7/r0p1`, `ARM_CM4F`, `ARM_CM3`, `ARM_CM0`, 그리고
+M23/M33/M55/M85용 non-TrustZone ARMv8-M port 중 하나이며, 어느 것을
+선택했는지는 configure 단계에서 출력됩니다.
+
+`cmake/FreeRTOSConfig.h.in`은 `board.h`와 같은 방식으로
+`build/FreeRTOSConfig.h`로 생성됩니다. 그래서 heap 크기와 디바이스별 priority
+bit 수가 프로젝트마다 복사되지 않고 `config.cmake`를 따라갑니다. 커널 옵션도
+이 파일에서 켜세요.
+
+`SysTick`은 커널이 소유하고 `main.c`가 tick hook에서 `HAL_IncTick`을
+호출하므로, task 안에서는 `HAL_Delay`와 모든 HAL timeout이 그대로 동작합니다.
+다만 `HAL_Init`과 `vTaskStartScheduler` 사이에는 tick이 멈춰 있으므로, 대기가
+필요한 초기화는 task 안에서 하세요.
+
+다른 RTOS를 쓰려면 `STM32_SOURCES`, `STM32_INCLUDES`, `STM32_DEFINES`에 값을
+추가하는 `cmake/rtos-<name>.cmake`를 만들고 그 이름을 `RTOS`에 적으면 됩니다.
+`CMakeLists.txt`는 `RTOS`가 가리키는 파일을 include할 뿐이고 다른 곳에서는 이
+값을 보지 않습니다. 템플릿에 함께 들어 있는 것은 FreeRTOS뿐입니다.
+
 ### 추가 라이브러리
 
 | 변수 | 의미 |
@@ -514,7 +547,13 @@ tree는 STM32마다 다르므로 reset 상태가 모든 칩에서 부팅되는 �
 무한 루프인 `Default_Handler`의 alias로 선언하고, HAL은 프로젝트가
 `HAL_IncTick`을 호출할 것으로 기대합니다. 이 코드가 없으면 첫
 `HAL_Delay`가 반환되지 않습니다. 다른 interrupt handler도 이 코드 옆에
-추가하세요.
+추가하세요. `RTOS=freertos`일 때는 이 vector를 커널이 가져가고
+`vApplicationTickHook`이 대신 `HAL_IncTick`을 호출합니다.
+
+**출력하는 task는 하나뿐.** 여기서 쓰는 newlib의 `printf`는 reentrant하지
+않으므로, 두 번째 task에서 호출하려면 호출마다 mutex로 감싸야 합니다. 예제
+task는 tick 값 옆에 `xPortGetFreeHeapSize`를 함께 출력합니다.
+`FREERTOS_HEAP_KB`를 언제 늘려야 하는지 판단할 때 보는 값입니다.
 
 **`setvbuf(stdout, NULL, _IONBF, 0)`.** newlib은 `_isatty`에 stdout이
 terminal인지 묻지만 `nosys`는 아니라고 답합니다. 따라서 이 설정이 없으면
@@ -532,6 +571,7 @@ stdout이 완전히 buffering되어 1 KB가 쌓일 때까지 아무것도 출력
 | 항목 | 출처 |
 |---|---|
 | CMSIS core | `github.com/STMicroelectronics/cmsis-core` |
+| FreeRTOS 커널 | `github.com/FreeRTOS/FreeRTOS-Kernel` |
 | 디바이스 헤더, startup | `github.com/STMicroelectronics/cmsis-device-<fam>` |
 | HAL 및 LL 드라이버 | `github.com/STMicroelectronics/stm32<fam>xx-hal-driver` |
 | 메모리 맵, 디바이스 define, core/FPU | `keil.com/pack/Keil.STM32<FAM>xx_DFP.pdsc` |
@@ -564,12 +604,16 @@ script를 제공합니다. CMSIS-Pack에는 CubeMX도 사용하는 실제 디바
 - `CoreH743I`의 console pin은 보드에 내장된 bridge가 아니라 외부 USB-serial
   어댑터를 연결해 검증한 값입니다. NUCLEO 항목은 보드의 ST-LINK가 가상 COM
   포트로 노출하는 UART입니다.
+- FreeRTOS는 TrustZone과 MPU를 쓰지 않는 단일 이미지로 구성되어 있습니다.
+  TrustZone 프로젝트에는 `ARM_CM33` port와 별도의 secure 이미지가 필요하며,
+  이는 `config.cmake`의 스위치 하나로 끝나는 일이 아니라 별도의 프로젝트입니다.
 
 ## 라이선스
 
 MIT입니다. [LICENSE](LICENSE)를 참고하세요. 상업적 용도로 사용해도 되며,
 조건은 배포하는 사본에 저작권 표시를 함께 유지하는 것뿐입니다.
 
-이는 템플릿 자체에 적용됩니다. `lib/` 아래의 각 STMicroelectronics
-submodule에는 해당 upstream 저장소의 라이선스가 그대로 적용되며, 프로젝트
+이는 템플릿 자체에 적용됩니다. `lib/` 아래의 각 submodule, 즉
+STMicroelectronics 저장소들과 마찬가지로 MIT인 `freertos-kernel`에는 각
+upstream 저장소의 라이선스가 그대로 적용되며, 프로젝트
 수준의 라이선스가 vendor 라이선스를 대체하지 않습니다.

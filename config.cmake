@@ -68,6 +68,18 @@ set(CONSOLE_BAUD "115200")
 # Unused until you write SystemClock_Config; wrong values bite there.
 set(HSE_HZ "8000000")
 
+# --- RTOS ------------------------------------------------------------------
+# "freertos" (the default) or "none" for a bare main loop. setup.py checks out
+# the kernel; the build picks the port to use out of CPU_FLAGS on its own.
+# Another RTOS is a cmake/rtos-<name>.cmake of its own, named here: CMakeLists
+# includes whatever this says and nothing else looks at it.
+set(RTOS "freertos")
+
+# FreeRTOS heap (heap_4), in KB. Task stacks, queues and timers all come out of
+# it, and it is one plain array in RAM, so it has to fit next to everything
+# else there. The linker says "region RAM overflowed" when it does not.
+set(FREERTOS_HEAP_KB "8")
+
 # --- Extra libraries -------------------------------------------------------
 # Added by `tools/setup.py add <alias|url>`. Each directory is scanned for
 # *.c sources, and its Inc/ or Include/ subdirectory is added to the include
