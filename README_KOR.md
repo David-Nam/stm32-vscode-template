@@ -26,7 +26,7 @@ STM32 펌웨어 개발을 바로 시작할 수 있는 VSCode + CMake + Ninja
 
 FreeRTOS는 기본으로 들어 있습니다. `config.cmake`의 `RTOS`에서 `freertos`
 (기본값) 또는 `none`을 선택하며, 커널 port는 컴파일러 플래그와 마찬가지로
-코어에서 결정됩니다. `src/main.c`는 "Hello, World!"를 task에서 출력합니다.
+코어에서 결정됩니다. `app/main.c`는 "Hello, World!"를 task에서 출력합니다.
 [RTOS](#rtos)를 참고하세요.
 
 이 저장소에 커밋되어 있는 vendor 코드는 패밀리와 무관한 `lib/cmsis-core`와
@@ -512,7 +512,7 @@ Cortex-Debug는 `PATH`에서 `arm-none-eabi-gdb`를 찾습니다. `PATH`에 없�
 
 ## 애플리케이션 구성
 
-`src/main.c`에는 패밀리, port, pin 이름이 직접 들어 있지 않습니다.
+`app/main.c`에는 패밀리, port, pin 이름이 직접 들어 있지 않습니다.
 `config.cmake`의 값을 사용해 `cmake/board.h.in`으로부터 `build/board.h`를
 생성합니다.
 

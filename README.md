@@ -25,7 +25,7 @@ exist when this was written needs no build-system code change.
 
 FreeRTOS comes with it. `RTOS` in `config.cmake` picks `freertos` (the default)
 or `none`, the kernel port follows from the core the same way the compiler flags
-do, and `src/main.c` runs its "Hello, World!" from a task. See
+do, and `app/main.c` runs its "Hello, World!" from a task. See
 [RTOS](#rtos).
 
 The only vendor code committed here is `lib/cmsis-core` and `lib/freertos-kernel`,
@@ -498,7 +498,7 @@ hand.
 
 ## How the application is put together
 
-`src/main.c` never names a family, a port or a pin. `cmake/board.h.in` is
+`app/main.c` never names a family, a port or a pin. `cmake/board.h.in` is
 generated into `build/board.h` from `config.cmake`:
 
 ```c
