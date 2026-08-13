@@ -1,0 +1,27 @@
+/* Generated from cmake/board.h.in -- do not edit the copy in build/.
+ * Wraps everything that changes when you point config.cmake at another chip,
+ * so application code never names a family, a port or a pin directly.
+ *
+ * LL drivers are compiled in and their headers are on the include path; pull
+ * in the ones you need, e.g. #include "stm32@FAM@xx_ll_gpio.h"
+ */
+#pragma once
+
+#include "stm32@FAM@xx_hal.h"
+
+#define BOARD_NAME "@BOARD@"
+#define BOARD_MCU  "@MCU@"
+
+/* Console: @CONSOLE_UART@, TX @CONSOLE_TX@, RX @CONSOLE_RX@, AF@CONSOLE_AF@ */
+#define CONSOLE_UART              @CONSOLE_UART@
+#define CONSOLE_BAUD              @CONSOLE_BAUD@
+#define CONSOLE_AF                GPIO_AF@CONSOLE_AF@_@CONSOLE_UART@
+#define CONSOLE_UART_CLK_ENABLE() __HAL_RCC_@CONSOLE_UART@_CLK_ENABLE()
+
+#define CONSOLE_TX_PORT           GPIO@CONSOLE_TX_PORT@
+#define CONSOLE_TX_PIN            GPIO_PIN_@CONSOLE_TX_PIN@
+#define CONSOLE_TX_CLK_ENABLE()   __HAL_RCC_GPIO@CONSOLE_TX_PORT@_CLK_ENABLE()
+
+#define CONSOLE_RX_PORT           GPIO@CONSOLE_RX_PORT@
+#define CONSOLE_RX_PIN            GPIO_PIN_@CONSOLE_RX_PIN@
+#define CONSOLE_RX_CLK_ENABLE()   __HAL_RCC_GPIO@CONSOLE_RX_PORT@_CLK_ENABLE()

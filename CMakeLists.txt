@@ -1,13 +1,53 @@
-cmake_minimum_required(VERSION 3.20)
+# 3.21 for CMakePresets.json version 3, which carries the toolchain file.
+cmake_minimum_required(VERSION 3.21)
 
 include(${CMAKE_CURRENT_LIST_DIR}/config.cmake)
 
+# Without this CMake passes no -O and no -g, so the debugger cannot see any
+# variable. Override with -DCMAKE_BUILD_TYPE=MinSizeRel when size matters.
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
+endif()
+
 project(stm32-template C ASM)
+message(STATUS "Build:     ${CMAKE_BUILD_TYPE}")
 
 message(STATUS "MCU:       ${MCU} (${BOARD})")
 message(STATUS "Toolchain: ${CMAKE_C_COMPILER}")
 
-# Stage 1: compile only. Linking needs startup code and a linker script from
-# the CMSIS submodule, which stage 2 fetches and stage 3 wires up.
-add_library(app OBJECT src/main.c)
-target_compile_options(app PRIVATE ${CPU_FLAGS} -Wall -Wextra)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/stm32.cmake)
+
+# Each RTOS is one cmake/rtos-<name>.cmake that appends to the STM32_* lists
+# above. "none" leaves the bare main loop in app/main.c.
+if(RTOS AND NOT RTOS STREQUAL "none")
+  if(NOT EXISTS ${CMAKE_CURRENT_LIST_DIR}/cmake/rtos-${RTOS}.cmake)
+    message(FATAL_ERROR "RTOS=\"${RTOS}\" in config.cmake, but there is no "
+                        "cmake/rtos-${RTOS}.cmake to build it with")
+  endif()
+  include(${CMAKE_CURRENT_LIST_DIR}/cmake/rtos-${RTOS}.cmake)
+endif()
+
+file(GLOB_RECURSE APP_SOURCES CONFIGURE_DEPENDS
+  app/*.c bsp/*.c drivers/hal/*.c middleware/*.c)
+
+add_executable(${PROJECT_NAME}.elf ${APP_SOURCES} ${STM32_SOURCES})
+target_include_directories(${PROJECT_NAME}.elf PRIVATE ${STM32_INCLUDES})
+target_compile_definitions(${PROJECT_NAME}.elf PRIVATE ${STM32_DEFINES})
+target_compile_options(${PROJECT_NAME}.elf PRIVATE ${STM32_COMPILE_OPTIONS})
+target_link_options(${PROJECT_NAME}.elf PRIVATE ${STM32_LINK_OPTIONS})
+
+# Warnings on our own code only. The vendor drivers are not ours to clean up.
+set_source_files_properties(${APP_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
+
+set(ELF $<TARGET_FILE:${PROJECT_NAME}.elf>)
+add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
+  COMMAND ${CMAKE_OBJCOPY} -O ihex   ${ELF} ${PROJECT_NAME}.hex
+  COMMAND ${CMAKE_OBJCOPY} -O binary ${ELF} ${PROJECT_NAME}.bin
+  COMMAND ${CMAKE_SIZE} ${ELF})
+
+# Writes to FLASH_ORIGIN, so an app placed behind a bootloader still lands right.
+add_custom_target(flash
+  COMMAND st-flash --reset write ${PROJECT_NAME}.bin ${FLASH_ORIGIN}
+  DEPENDS ${PROJECT_NAME}.elf
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  COMMENT "st-flash --reset write ${PROJECT_NAME}.bin ${FLASH_ORIGIN}")

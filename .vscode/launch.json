@@ -1,0 +1,43 @@
+{
+  // Cortex-Debug is required for all three. The .elf name follows
+  // project(stm32-template ...) in CMakeLists.txt: rename one, rename both.
+  // "configFiles" below is the only family-specific setting in this file --
+  // target/stm32h7x.cfg has to change with the chip. OpenOCD ships the list
+  // under its scripts/target directory.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug (st-util)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "stutil",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32-template.elf",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "build"
+    },
+    {
+      "name": "Debug (OpenOCD)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32-template.elf",
+      "configFiles": ["interface/stlink.cfg", "target/stm32h7x.cfg"],
+      // Uncomment for the thread list in the debugger's call stack. OpenOCD
+      // reads the kernel's task lists to build it, so it only works with
+      // RTOS=freertos and refuses to start the session without those symbols.
+      // "rtos": "FreeRTOS",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "build"
+    },
+    {
+      "name": "Attach (st-util, no reset)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "stutil",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32-template.elf"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "configure",
+            "type": "shell",
+            "command": "cmake --preset default",
+            "problemMatcher": []
+        },
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "cmake --build --preset default",
+            "dependsOn": "configure",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "presentation": {
+                "clear": true
+            }
+        },
+        {
+            "label": "clean",
+            "type": "shell",
+            "command": "cmake --build --preset default --target clean",
+            "problemMatcher": []
+        },
+        {
+            "label": "flash",
+            "type": "shell",
+            "command": "cmake --build --preset flash",
+            "problemMatcher": [],
+            "presentation": {
+                "clear": true
+            }
+        },
+        {
+            // python3 on macOS and Linux, python on Windows: the Windows
+            // installers create python.exe and no python3.exe.
+            "label": "setup (fetch submodules for the configured MCU)",
+            "type": "shell",
+            "command": "python3 tools/setup.py",
+            "windows": {
+                "command": "python tools/setup.py"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

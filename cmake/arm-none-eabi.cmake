@@ -14,11 +14,20 @@ find_program(ARM_GCC arm-none-eabi-gcc
   REQUIRED)
 get_filename_component(ARM_BIN "${ARM_GCC}" DIRECTORY)
 
-set(CMAKE_C_COMPILER   "${ARM_BIN}/arm-none-eabi-gcc")
-set(CMAKE_CXX_COMPILER "${ARM_BIN}/arm-none-eabi-g++")
-set(CMAKE_ASM_COMPILER "${ARM_BIN}/arm-none-eabi-gcc")
-set(CMAKE_OBJCOPY      "${ARM_BIN}/arm-none-eabi-objcopy" CACHE FILEPATH "")
-set(CMAKE_SIZE         "${ARM_BIN}/arm-none-eabi-size"    CACHE FILEPATH "")
+# Every other tool is looked up next to the compiler instead of being glued
+# together as a string: on Windows the files are arm-none-eabi-objcopy.exe, and
+# find_program adds that suffix where a hand-built path would not.
+find_program(ARM_GXX     arm-none-eabi-g++     HINTS ${ARM_BIN} NO_DEFAULT_PATH)
+find_program(ARM_OBJCOPY arm-none-eabi-objcopy HINTS ${ARM_BIN} NO_DEFAULT_PATH REQUIRED)
+find_program(ARM_SIZE    arm-none-eabi-size    HINTS ${ARM_BIN} NO_DEFAULT_PATH REQUIRED)
+
+set(CMAKE_C_COMPILER   "${ARM_GCC}")
+set(CMAKE_ASM_COMPILER "${ARM_GCC}")
+if(ARM_GXX)
+  set(CMAKE_CXX_COMPILER "${ARM_GXX}")
+endif()
+set(CMAKE_OBJCOPY "${ARM_OBJCOPY}" CACHE FILEPATH "")
+set(CMAKE_SIZE    "${ARM_SIZE}"    CACHE FILEPATH "")
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
