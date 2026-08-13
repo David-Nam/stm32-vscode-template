@@ -109,8 +109,12 @@ set(STM32_LINK_OPTIONS
   --specs=nano.specs --specs=nosys.specs
   -Wl,--gc-sections
   -Wl,-Map=${CMAKE_BINARY_DIR}/${PROJECT_NAME}.map,--cref
-  -Wl,--print-memory-usage
-  # .init_array is writable and lands in the same FLASH segment as .text, so
-  # the segment comes out RWX. There is no MMU enforcing W^X here and nothing
-  # loads these segment flags -- the .bin is written straight to flash.
-  -Wl,--no-warn-rwx-segments)
+  -Wl,--print-memory-usage)
+# binutils 2.39+ warns on the link above: .init_array is writable and lands
+# in the same FLASH segment as .text, so the segment comes out RWX. There is
+# no MMU enforcing W^X here and nothing loads these segment flags -- the .bin
+# is written straight to flash, so the warning is noise. Deliberately not
+# silenced with -Wl,--no-warn-rwx-segments: that flag does not exist before
+# binutils 2.39, and older linkers (e.g. Ubuntu 22.04's packaged
+# arm-none-eabi-gcc, binutils 2.38) reject it outright, turning a cosmetic
+# warning into a hard link failure.
