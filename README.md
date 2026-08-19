@@ -425,6 +425,13 @@ python3 tools/try_board.py NUCLEO-F411RE
 python3 tools/try_board.py "" STM32G071RBTx
 ```
 
+Each run uses a new, uniquely named directory below the system temporary
+directory and removes only that owned directory when it exits. Use `--keep` to
+preserve the copy for inspection, or set `TRY_DIR` to an existing directory to
+choose its parent. The safe default copies tracked files only; use
+`--include-untracked` when a test deliberately needs current untracked files.
+`--flash` builds and programs the named board through the connected ST-LINK.
+
 ## Adding libraries
 
 Examples, BSP and middleware are not fetched by default because they are large

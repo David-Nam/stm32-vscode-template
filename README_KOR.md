@@ -436,6 +436,13 @@ python3 tools/try_board.py NUCLEO-F411RE
 python3 tools/try_board.py "" STM32G071RBTx
 ```
 
+실행할 때마다 시스템 임시 디렉터리 아래에 고유한 새 디렉터리를 만들고, 종료할
+때 이 도구가 만든 해당 디렉터리만 제거합니다. 복사본을 확인하려면 `--keep`을
+사용하고, 상위 경로를 바꾸려면 이미 존재하는 디렉터리를 `TRY_DIR`로 지정하세요.
+기본값은 tracked 파일만 복사합니다. 현재 untracked 파일이 필요한 테스트에서만
+`--include-untracked`를 사용하세요. `--flash`는 지정한 보드를 빌드한 뒤 연결된
+ST-LINK를 통해 프로그램합니다.
+
 ## 라이브러리 추가
 
 예제, BSP, middleware는 크기가 크고 대부분의 프로젝트에 필요하지 않으므로
