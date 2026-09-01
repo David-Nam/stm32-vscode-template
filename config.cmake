@@ -1,12 +1,13 @@
-# Project configuration. This is the only file you should need to edit.
-# After changing MCU or BOARD, run tools/setup.py
-# (python3 tools/setup.py on macOS and Linux, python tools/setup.py on Windows)
+# User-owned project configuration. Change targets with tools/setup.py target;
+# that command updates BOARD/MCU and generated/device.cmake together.
+# (python3 on macOS/Linux, python on Windows.)
 #
 # tools/setup.py both reads and rewrites this file, so keep it to plain
 # single-line set() calls: one per line, no if()/foreach(), and no ')' inside
 # a value. Trailing '#' comments are fine and are preserved on rewrite.
-# setup.py only ever writes MCU, CONSOLE_*, RAM_*, FLASH_SIZE (and only when
-# they are empty) plus EXTRA_LIB_DIRS. Everything else it just reads.
+# setup.py target writes BOARD, MCU, target-specific console/clock choices and
+# the explicit overrides below. Other commands may write ARM_TOOLCHAIN_BIN or
+# EXTRA_LIB_DIRS. Physical device facts do not live in this file.
 
 # --- Toolchain -------------------------------------------------------------
 # Empty means "use whatever arm-none-eabi-gcc is on PATH", which is right when
@@ -26,32 +27,30 @@
 set(ARM_TOOLCHAIN_BIN "")
 
 # --- Target ----------------------------------------------------------------
-# Set BOARD to a name from `tools/setup.py --list-boards`, or leave it empty
-# and set MCU directly. setup.py fills in whatever is left empty below.
+# Do not edit BOARD/MCU independently. Use one atomic command instead:
+#   python3 tools/setup.py target --board NUCLEO-F411RE
+#   python3 tools/setup.py target --mcu STM32F411RETx
 set(BOARD "CoreH743I")
 set(MCU "STM32H743IITx")
 
-# --- Memory ----------------------------------------------------------------
-# Filled in by setup.py from the device's CMSIS-Pack. Do not hand-edit unless
-# you mean to override; setup.py only writes values that are still empty.
-# Clear a value and re-run setup.py to have it re-derived.
-set(FLASH_ORIGIN "0x08000000")
-set(FLASH_SIZE "2048K")
-set(RAM_ORIGIN "0x20000000")
-set(RAM_SIZE "128K")
-
+# --- Target policy and explicit overrides ----------------------------------
 # RAM defaults to whatever the pack puts at 0x20000000, which is TCM or main
-# SRAM on every STM32 and works straight out of reset. Name a different region
-# here to use it instead -- setup.py prints the available names.
+# SRAM on supported STM32s and works straight out of reset. Select another with
+# `setup.py target ... --ram-region RAM_D1`; retargeting clears this value.
 # On STM32H743 the choices are DTCMRAM (128K, the default), RAM_D1 (512K),
 # RAM_D2 (288K) and RAM_D3 (64K). RAM_D2 and RAM_D3 need their RCC clocks
 # enabled before first access, so do not point at them without adding that.
 set(RAM_REGION "")
 
-# --- Device (filled in by setup.py from the CMSIS-Pack) --------------------
-set(FAMILY "H7")
-set(DEVICE_DEFINE "STM32H743xx")
-set(CPU_FLAGS "-mcpu=cortex-m7" "-mthumb" "-mfpu=fpv5-d16" "-mfloat-abi=hard")
+# Pack-derived values live in generated/device.cmake. Override one only when
+# deliberately departing from the device pack. Every target change clears all
+# overrides so a value for one MCU cannot silently leak into another.
+set(TARGET_FLASH_ORIGIN_OVERRIDE "")
+set(TARGET_FLASH_SIZE_OVERRIDE "")
+set(TARGET_RAM_ORIGIN_OVERRIDE "")
+set(TARGET_RAM_SIZE_OVERRIDE "")
+set(TARGET_DEVICE_DEFINE_OVERRIDE "")
+set(TARGET_CPU_FLAGS_OVERRIDE "")
 
 # --- Console ---------------------------------------------------------------
 # Pins are written as P<port><number>. CONSOLE_AF is the alternate function

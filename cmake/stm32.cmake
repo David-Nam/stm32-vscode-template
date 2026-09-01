@@ -1,6 +1,24 @@
 # Turns the values in config.cmake into sources, include paths and flags.
 # Everything here is derived; nothing is per-family hardcoded.
 
+# config.cmake owns user intent; generated/device.cmake owns Pack-derived
+# facts. A half-written or manually edited target must fail before any build.
+if(NOT "${BOARD}" STREQUAL "${STM32_GENERATED_BOARD}" OR
+   NOT "${MCU}" STREQUAL "${STM32_GENERATED_MCU}")
+  message(FATAL_ERROR
+    "config.cmake target (${BOARD}, ${MCU}) does not match generated/device.cmake "
+    "(${STM32_GENERATED_BOARD}, ${STM32_GENERATED_MCU}).\n"
+    "  Run tools/setup.py target --board <name> or --mcu <part>.")
+endif()
+
+foreach(var FLASH_ORIGIN FLASH_SIZE RAM_ORIGIN RAM_SIZE DEVICE_DEFINE CPU_FLAGS)
+  set(override TARGET_${var}_OVERRIDE)
+  if(DEFINED ${override} AND NOT "${${override}}" STREQUAL "")
+    set(${var} ${${override}})
+    message(STATUS "Target override: ${var}=${${var}}")
+  endif()
+endforeach()
+
 # Only used to spell the setup command in the messages below the way the host
 # spells it: Windows installs python.exe and no python3.exe.
 if(CMAKE_HOST_WIN32)
@@ -11,7 +29,9 @@ endif()
 
 foreach(var FAMILY DEVICE_DEFINE CPU_FLAGS FLASH_ORIGIN FLASH_SIZE RAM_ORIGIN RAM_SIZE)
   if(NOT ${var})
-    message(FATAL_ERROR "${var} is empty in config.cmake. Run: ${PY} tools/setup.py")
+    message(FATAL_ERROR
+      "${var} is empty after loading the target configuration.\n"
+      "  Run: ${PY} tools/setup.py target --board <name> or --mcu <part>")
   endif()
 endforeach()
 

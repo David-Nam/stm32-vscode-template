@@ -2,8 +2,8 @@
 
 [English](README.md) | [한국어](README_KOR.md)
 
-A VSCode + CMake + Ninja starting point for STM32 firmware. Point `config.cmake`
-at a chip, run one script, and you get a building, flashing, debuggable project
+A VSCode + CMake + Ninja starting point for STM32 firmware. Select a chip with
+`tools/setup.py target`, and you get a building, flashing, debuggable project
 with the HAL and LL drivers pulled straight from STMicroelectronics' GitHub as
 submodules.
 
@@ -11,7 +11,7 @@ The sample application prints "Hello, World!" over a UART, from a FreeRTOS task.
 
 ## What it does for you
 
-Set `MCU` (or `BOARD`) and `tools/setup.py` works out the rest:
+Give `tools/setup.py target` an MCU or known board and it works out the rest:
 
 - which ST repositories hold the CMSIS device headers and the HAL/LL drivers,
   and adds them as submodules
@@ -33,7 +33,7 @@ neither of which depends on the family. The device headers, the HAL/LL drivers
 and the family's `stm32<fam>xx_hal_conf.h` under `inc/` all arrive when you run
 `setup.py`, so a new project never carries another chip's drivers around.
 
-Verified on five parts spanning four cores, changing nothing but `config.cmake`:
+Verified on five parts spanning four cores through the same target workflow:
 
 | MCU | Core | Flash | RAM |
 |---|---|---|---|
@@ -102,16 +102,15 @@ required.
 
 1. Install the tools in [Requirements](#requirements), then confirm the machine
    is ready with `python3 tools/setup.py doctor`.
-2. Configure the target in `config.cmake`. The file ships with `CoreH743I`
-   values as a working example; do not assume they match your board. When
-   selecting a known `BOARD`, clear `MCU` so `setup.py` can fill it. When
-   selecting `MCU` directly, replace or clear the old `BOARD`. Follow
-   [Changing chip or board](#changing-chip-or-board) for the complete reset
-   list.
+2. Select a target atomically. The repository ships with `CoreH743I` as a
+   working example; do not assume it matches your board. Run
+   `python3 tools/setup.py target --board <name>` for a listed board or
+   `python3 tools/setup.py target --mcu <part>` for an MCU.
 3. Make `arm-none-eabi-gcc` reachable: on `PATH`, or through
    `ARM_TOOLCHAIN_BIN`. `setup.py doctor --fix` fills both `config.cmake` and
    `.vscode/settings.json` in when it finds a toolchain that `PATH` misses.
-4. Run `python3 tools/setup.py`, then `cmake --preset default` and
+4. The target command fetches the required family dependencies. Then run
+   `cmake --preset default` and
    `cmake --build --preset default`.
 5. If you use OpenOCD on a non-H7 target, replace `target/stm32h7x.cfg` in
    `.vscode/launch.json` with the target configuration for that family.
@@ -124,8 +123,9 @@ required.
 8. Replace `LICENSE` with your project's own, or delete it if the project is
    not published. The template is MIT; a repository generated from it is
    yours, and the vendor submodules keep their own licenses either way.
-9. Commit the configured `config.cmake`, `.gitmodules`, submodule entries and
-   generated family HAL configuration under `inc/` as part of your project.
+9. Commit `config.cmake`, `generated/device.cmake`, `.gitmodules`, submodule
+   entries and the generated family HAL configuration under `inc/` as part of
+   your project.
 
 Template updates are not synced into generated repositories. Treat this as a
 starting snapshot. If you later want to inspect changes, add the template as a
@@ -215,8 +215,8 @@ setup.
 ```sh
 git clone --recurse-submodules <your generated repo URL> PROJECT
 cd PROJECT
-$EDITOR config.cmake                    # replace the example BOARD/MCU and console values
-python3 tools/setup.py                  # fetch submodules, fill in the derived values
+python3 tools/setup.py target --board NUCLEO-F411RE  # target + dependencies
+$EDITOR config.cmake                    # optional: RTOS, console or explicit overrides
 cmake --preset default                  # configure, once
 cmake --build --preset default          # build
 cmake --build --preset flash            # write it to the chip with st-flash
@@ -243,10 +243,11 @@ tick: 2
 
 ## config.cmake
 
-This is the only file you should need to edit. Some values you set, the rest
-`tools/setup.py` fills in. It only ever writes a value that is **empty**, so
-anything you put there by hand survives. To have a derived value recomputed,
-blank it and run `setup.py` again.
+This is the user-owned configuration for project policy, the console and
+explicit overrides. Do not change `BOARD` and `MCU` independently: the target
+command updates them together and writes Pack-derived facts to
+`generated/device.cmake`. CMake checks the identities in both files and stops
+if they do not match.
 
 ### Toolchain
 
@@ -258,23 +259,25 @@ blank it and run `setup.py` again.
 
 | Variable | Who sets it | Meaning |
 |---|---|---|
-| `BOARD` | you | A name from `setup.py --list-boards`, or free text. If `MCU` is empty, a known board fills in `MCU` and the console pins. |
-| `MCU` | you, or from `BOARD` | Full part number, e.g. `STM32H743IITx`. A trailing temperature-grade digit is fine (`STM32H743IIT6`). |
+| `BOARD` | `setup.py target --board` | A name from `setup.py --list-boards`; the command also selects its MCU, console pins and HSE. |
+| `MCU` | `setup.py target` | Full part number, e.g. `STM32H743IITx`. `--mcu` clears board-specific console and clock values. |
+| `RAM_REGION` | `setup.py target --ram-region` | Optional named Pack RAM region; empty selects the safe region at `0x20000000`. |
 
-Setting `MCU` directly works for any STM32; the board table is only a shortcut
-for a handful of boards.
+Do not edit one without the other. A known BOARD/MCU mismatch fails before any
+network, file or submodule operation.
 
 ### Memory
 
-All four are filled from the CMSIS-Pack. You normally never touch them.
+The physical values below live in generated/device.cmake and come from the
+CMSIS-Pack. Do not edit that file; re-run the target command instead.
 
 | Variable | Meaning |
 |---|---|
-| `FLASH_ORIGIN` | Usually `0x08000000`. Change it to place the application behind a bootloader. |
+| `FLASH_ORIGIN` | Physical Flash start, usually `0x08000000`. |
 | `FLASH_SIZE` | Contiguous flash. Abutting banks are merged, so an STM32H743's two 1 MB banks come out as `2048K`. |
 | `RAM_ORIGIN` | Start of the RAM block the linker script uses. |
 | `RAM_SIZE` | Its size. Abutting regions are merged, so an STM32U575's SRAM1+2+3 come out as `768K`. |
-| `RAM_REGION` | Empty picks whatever the pack puts at `0x20000000`. Name a region to override. |
+| `STM32_RAM_REGION` | Name of the Pack region selected by setup. |
 
 `RAM_REGION` is worth understanding. The default is *not* the largest region:
 on an STM32H743 the pack lists `DTCMRAM` (128K), `RAM_D1` (512K), `RAM_D2`
@@ -282,10 +285,20 @@ on an STM32H743 the pack lists `DTCMRAM` (128K), `RAM_D1` (512K), `RAM_D2`
 than right. Whatever sits at `0x20000000` is TCM or main SRAM on every STM32 and
 is usable straight out of reset, whereas `RAM_D2` and `RAM_D3` need their RCC
 clocks enabled first and will hang the program if you jump straight into them.
-`setup.py` prints every region it found, so:
+`setup.py` prints every region it found. Select a listed region as part of the
+same atomic target operation:
+
+```sh
+python3 tools/setup.py target --board CoreH743I --ram-region RAM_D1
+```
+
+Other deliberate departures from Pack data use clearly named
+`TARGET_*_OVERRIDE` variables in `config.cmake`; a retarget clears them so an
+override cannot leak to another MCU.
 
 ```cmake
-set(RAM_REGION "RAM_D1")     # then blank RAM_ORIGIN and RAM_SIZE, re-run setup.py
+set(TARGET_RAM_ORIGIN_OVERRIDE "0x24000000")
+set(TARGET_RAM_SIZE_OVERRIDE "512K")
 ```
 
 ### Console
@@ -323,14 +336,20 @@ system clock and a garbled console.
 
 ### Device
 
+These are read-only facts in `generated/device.cmake`, not settings to maintain
+by hand:
+
 | Variable | Meaning |
 |---|---|
 | `FAMILY` | `H7`, `G0`, ... Picks the submodule directory names. |
 | `DEVICE_DEFINE` | e.g. `STM32H743xx`. Selects the CMSIS header and the startup file. |
+| `PROCESSOR_CORE` / `PROCESSOR_FPU` | Processor properties selected from the Pack record. |
 | `CPU_FLAGS` | e.g. `-mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard`. |
+| `STM32_PACK_*` | URL, vendor, Pack name/version and the exact part record used to derive this file. |
 
-All three come from the pack. Override `CPU_FLAGS` by hand if you need
-something unusual.
+Re-run `setup.py target` to regenerate them. If a project deliberately needs
+different compiler flags, set `TARGET_CPU_FLAGS_OVERRIDE` in `config.cmake`;
+the next retarget clears that override.
 
 ### RTOS
 
@@ -379,50 +398,40 @@ so it needs plain single-line `set()` calls:
 
 ## Changing chip or board
 
-`config.cmake` starts as a working `CoreH743I` example. To select a known board
-from `setup.py --list-boards`, set `BOARD`, blank `MCU`, and blank the console
-and derived fields. `setup.py` only fills board defaults when `MCU` is empty:
-
-```cmake
-set(BOARD "NUCLEO-F411RE")
-set(MCU "")
-set(FLASH_ORIGIN "")
-set(FLASH_SIZE "")
-set(RAM_ORIGIN "")
-set(RAM_SIZE "")
-set(RAM_REGION "")
-set(FAMILY "")
-set(DEVICE_DEFINE "")
-set(CPU_FLAGS "")
-set(CONSOLE_UART "")
-set(CONSOLE_TX "")
-set(CONSOLE_RX "")
-set(CONSOLE_AF "")
-```
-
-To configure an MCU directly, set `MCU`, replace `BOARD` with a descriptive
-name or leave it empty, blank the same derived fields, and set the console
-fields yourself after checking `setup.py pins`. In both cases, review
-`HSE_HZ`: it is a board property and `setup.py` deliberately cannot derive it.
-
-Then regenerate and build:
+`config.cmake` starts as a working `CoreH743I` example. Replace it with one
+command rather than editing and clearing a list of related values:
 
 ```sh
-python3 tools/setup.py          # fetches the new family, refills the blanks
-python3 tools/setup.py pins     # inspect or verify console pin choices
-rm -rf build                    # the linker script and board.h are regenerated
+python3 tools/setup.py --list-boards
+python3 tools/setup.py target --board NUCLEO-F411RE
 cmake --preset default && cmake --build --preset default
 ```
 
-The old family's submodules stay behind; remove them if you are not coming back
-(see below).
+Not every STM32 can be selected: multi-core parts, flashless parts and a few
+others are refused. [docs/unsupported-mcu.md](docs/unsupported-mcu.md) lists
+them and says how each one is detected.
+
+For an unlisted board, select the MCU directly and then configure board wiring:
+
+```sh
+python3 tools/setup.py target --mcu STM32G071RBTx
+python3 tools/setup.py pins USART2
+$EDITOR config.cmake             # console pins and HSE_HZ
+cmake --preset default && cmake --build --preset default
+```
+
+The command resolves and validates the complete Pack record before replacing
+either target file. It writes user intent to `config.cmake` and physical
+device/core facts plus Pack provenance to `generated/device.cmake`. A failed
+network lookup or dependency setup leaves both target files unchanged. Old
+family submodules stay behind and the command reports them; remove them only
+after the new target has been verified.
 
 `tools/try_board.py` does all of this in a throwaway copy, which is the quickest
 way to check a chip before committing to it:
 
 ```sh
 python3 tools/try_board.py NUCLEO-F411RE
-python3 tools/try_board.py "" STM32G071RBTx
 ```
 
 Each run uses a new, uniquely named directory below the system temporary
@@ -431,6 +440,12 @@ preserve the copy for inspection, or set `TRY_DIR` to an existing directory to
 choose its parent. The safe default copies tracked files only; use
 `--include-untracked` when a test deliberately needs current untracked files.
 `--flash` builds and programs the named board through the connected ST-LINK.
+Before creating the copy or downloading dependencies, the helper checks Git,
+CMake, Ninja, the Arm toolchain and, for `--flash`, `st-flash`. It reuses
+`setup.py doctor`'s OS-specific search and passes a discovered off-PATH Arm
+toolchain to every child command automatically; no manual export is needed.
+This helper accepts complete board entries only; for an unlisted board, use the
+MCU workflow above and provide its console wiring before building.
 
 ## Adding libraries
 
@@ -566,8 +581,9 @@ tell "not running" from "running but the UART is wrong".
 | Memory map, device define, core/FPU | `keil.com/pack/Keil.STM32<FAM>xx_DFP.pdsc` |
 | Console pin and AF candidates | `github.com/STMicroelectronics/STM32_open_pin_data` |
 
-The last two are only read by `setup.py`, and what it finds is written into
-`config.cmake`. Builds need no network.
+The last two are only read by `setup.py`. Device facts and Pack provenance are
+written into `generated/device.cmake`; user policy remains in `config.cmake`.
+Builds need no network.
 
 The CMSIS headers are not enough on their own: they carry base addresses but
 not sizes, and their `FLASH_SIZE` is a runtime read of the flash size register,
@@ -578,9 +594,8 @@ map, which is where CubeMX gets it too.
 
 ## Limits
 
-- `setup.py` derives flash size from the part number only as an offline
-  fallback, and that fallback does not understand STM32H7RS or STM32N6 naming.
-  With the pack reachable this never comes up.
+- A target change requires a reachable CMSIS-Pack. It fails without replacing
+  the current target files rather than generating an incomplete memory map.
 - The board table has four entries. Any other board means setting `MCU` and the
   console pins yourself; `setup.py pins` covers the tedious half.
 - One RAM region reaches the linker script. Using an STM32H7's other SRAMs, or

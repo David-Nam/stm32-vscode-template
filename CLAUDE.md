@@ -48,8 +48,9 @@ Propose it and let the maintainer decide; do not add it unasked.
 
 ## Things that look wrong and are not
 
-- `config.cmake` ships working `CoreH743I` values so a fresh clone builds
-  without editing anything. Leave them.
+- `config.cmake` and `generated/device.cmake` ship as one working `CoreH743I`
+  target, so a fresh clone builds without retargeting. Leave their identities
+  in sync.
 - `.vscode/launch.json` names `target/stm32h7x.cfg` for the same reason, and
   says so in the comment at the top of the file.
 
@@ -59,8 +60,9 @@ Propose it and let the maintainer decide; do not add it unasked.
   parser: one single-line `set()` per variable, no `)` inside a value, no
   `if()`/`foreach()`.
 - Nothing under `cmake/`, `app/`, `bsp/`, `drivers/`, or `middleware/` names a
-  family. Chip-specific values reach
-  the code through `config.cmake` and the headers generated from
+  family. User intent lives in `config.cmake`; Pack-derived device facts live
+  in `generated/device.cmake`. Chip-specific values reach the code through
+  those files and the headers generated from
   `cmake/board.h.in` and `cmake/FreeRTOSConfig.h.in`.
 - `README.md` and `README_KOR.md` are one document in two languages. Change
   both, or neither.

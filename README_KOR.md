@@ -3,7 +3,7 @@
 [English](README.md) | [한국어](README_KOR.md)
 
 STM32 펌웨어 개발을 바로 시작할 수 있는 VSCode + CMake + Ninja
-템플릿입니다. `config.cmake`에 칩을 지정하고 스크립트 하나를 실행하면
+템플릿입니다. `tools/setup.py target`으로 칩을 지정하면
 빌드, 플래시, 디버깅이 가능한 프로젝트가 만들어집니다. HAL 및 LL
 드라이버는 STMicroelectronics의 GitHub 저장소에서 submodule로 직접
 가져옵니다.
@@ -12,7 +12,7 @@ STM32 펌웨어 개발을 바로 시작할 수 있는 VSCode + CMake + Ninja
 
 ## 자동으로 처리되는 작업
 
-`MCU` 또는 `BOARD`를 설정하면 `tools/setup.py`가 다음 항목을 처리합니다.
+`tools/setup.py target`에 MCU 또는 알려진 보드를 지정하면 다음 항목을 처리합니다.
 
 - CMSIS 디바이스 헤더와 HAL/LL 드라이버가 들어 있는 ST 저장소를 찾아
   submodule로 추가
@@ -34,8 +34,7 @@ FreeRTOS는 기본으로 들어 있습니다. `config.cmake`의 `RTOS`에서 `fr
 `stm32<fam>xx_hal_conf.h`는 모두 `setup.py`를 실행할 때 받아옵니다. 새
 프로젝트가 다른 칩의 드라이버를 떠안고 다닐 일이 없습니다.
 
-`config.cmake`만 바꾸어 네 종류의 코어에 걸친 다음 다섯 부품에서
-검증했습니다.
+동일한 target workflow로 네 종류의 코어에 걸친 다음 다섯 부품에서 검증했습니다.
 
 | MCU | 코어 | Flash | RAM |
 |---|---|---|---|
@@ -106,18 +105,16 @@ git submodule update --init --recursive
 
 1. [필수 도구](#필수-도구)의 프로그램을 설치한 뒤
    `python3 tools/setup.py doctor`로 준비 상태를 확인합니다.
-2. `config.cmake`에서 타깃을 설정합니다. 이 파일에는 동작 예제로
-   `CoreH743I` 값이 들어 있으므로 자신의 보드와 일치한다고 가정하면 안
-   됩니다. 알려진 `BOARD`를 선택할 때는 `setup.py`가 MCU를 채울 수 있도록
-   `MCU`를 비우세요. `MCU`를 직접 지정할 때는 기존 `BOARD`를 바꾸거나
-   비우세요. 전체 초기화 목록은 [칩 또는 보드 변경](#칩-또는-보드-변경)을
-   따르세요.
+2. 타깃을 원자적으로 선택합니다. 저장소에는 동작 예제로 `CoreH743I`가
+   들어 있으므로 자신의 보드라고 가정하면 안 됩니다. 알려진 보드는
+   `python3 tools/setup.py target --board <이름>`, MCU 직접 지정은
+   `python3 tools/setup.py target --mcu <부품번호>`를 사용하세요.
 3. `arm-none-eabi-gcc`를 찾을 수 있게 합니다. `PATH`에 두거나
    `ARM_TOOLCHAIN_BIN`으로 지정하면 됩니다. `PATH`가 닿지 않는 곳에 설치된
    toolchain은 `setup.py doctor --fix`가 찾아서 `config.cmake`와
    `.vscode/settings.json` 양쪽에 기록해 줍니다.
-4. `python3 tools/setup.py`를 실행한 뒤 `cmake --preset default`,
-   `cmake --build --preset default`를 실행합니다.
+4. target 명령이 필요한 패밀리 dependency까지 가져옵니다. 그다음
+   `cmake --preset default`, `cmake --build --preset default`를 실행합니다.
 5. H7이 아닌 타깃에서 OpenOCD를 사용한다면 `.vscode/launch.json`의
    `target/stm32h7x.cfg`를 해당 패밀리용 타깃 설정으로 바꿉니다.
 6. 이 README의 제목과 개요를 새 펌웨어 프로젝트에 맞게 바꾸고, 사용자에게
@@ -129,8 +126,8 @@ git submodule update --init --recursive
    프로젝트라면 삭제합니다. 템플릿은 MIT이며, 템플릿에서 생성한 저장소는
    사용자의 것입니다. 어느 쪽이든 vendor submodule은 각자의 라이선스를
    그대로 따릅니다.
-9. 설정된 `config.cmake`, `.gitmodules`, submodule 항목, `inc/` 아래에
-   생성된 패밀리별 HAL 설정을 프로젝트의 일부로 커밋합니다.
+9. `config.cmake`, `generated/device.cmake`, `.gitmodules`, submodule 항목,
+   `inc/` 아래의 패밀리별 HAL 설정을 프로젝트의 일부로 커밋합니다.
 
 템플릿의 이후 변경사항은 이미 생성된 저장소로 동기화되지 않습니다. 이
 템플릿을 시작 시점의 스냅샷으로 생각하세요. 나중에 변경사항을 확인하려면
@@ -220,8 +217,8 @@ submodule 가져오기를 위한 네트워크 연결이 필요합니다. 설정�
 ```sh
 git clone --recurse-submodules <생성한 저장소 URL> PROJECT
 cd PROJECT
-$EDITOR config.cmake                    # 예제 BOARD/MCU와 console 값을 교체
-python3 tools/setup.py                  # submodule을 가져오고 파생 값을 채움
+python3 tools/setup.py target --board NUCLEO-F411RE  # 타깃 + dependency
+$EDITOR config.cmake                    # 선택: RTOS, console 또는 명시적 override
 cmake --preset default                  # configure, 최초 1회
 cmake --build --preset default          # 빌드
 cmake --build --preset flash            # st-flash로 칩에 기록
@@ -248,10 +245,10 @@ tick: 2
 
 ## config.cmake
 
-일반적으로 수정해야 하는 유일한 파일입니다. 일부 값은 사용자가 설정하고
-나머지는 `tools/setup.py`가 채웁니다. 스크립트는 값이 **비어 있을 때만**
-쓰기 때문에 직접 입력한 값은 유지됩니다. 파생 값을 다시 계산하려면 해당
-값을 비운 뒤 `setup.py`를 다시 실행하세요.
+사용자 소유의 project 정책, console과 명시적 override를 담는 파일입니다.
+`BOARD`와 `MCU`를 따로 수정하지 마세요. target 명령이 둘을 함께 갱신하고
+Pack 파생값은 `generated/device.cmake`에 기록합니다. CMake는 두 파일의
+타깃 identity가 다르면 즉시 중단합니다.
 
 ### Toolchain
 
@@ -263,24 +260,25 @@ tick: 2
 
 | 변수 | 설정 주체 | 의미 |
 |---|---|---|
-| `BOARD` | 사용자 | `setup.py --list-boards`에 나오는 이름 또는 자유 형식의 이름. `MCU`가 비어 있고 알려진 보드라면 `MCU`와 console pin을 채웁니다. |
-| `MCU` | 사용자 또는 `BOARD` | 전체 부품 번호(예: `STM32H743IITx`). 끝에 온도 등급 숫자가 붙어도 됩니다(`STM32H743IIT6`). |
+| `BOARD` | `setup.py target --board` | `setup.py --list-boards`에 나오는 이름. 명령이 MCU, console pin과 HSE도 함께 선택합니다. |
+| `MCU` | `setup.py target` | 전체 부품 번호(예: `STM32H743IITx`). `--mcu`는 보드별 console과 clock 값을 비웁니다. |
+| `RAM_REGION` | `setup.py target --ram-region` | 선택적인 Pack RAM 영역 이름. 비어 있으면 `0x20000000`의 안전한 영역을 선택합니다. |
 
-`MCU`를 직접 설정하는 방식은 모든 STM32에서 동작합니다. 보드 표는 일부
-보드를 위한 단축 기능일 뿐입니다.
+둘 중 하나만 직접 수정하지 마세요. 알려진 BOARD와 MCU가 다르면 network,
+파일 또는 submodule 작업 전에 실패합니다.
 
 ### 메모리
 
-다음 값은 모두 CMSIS-Pack에서 채웁니다. 일반적으로 직접 수정할 필요가
-없습니다.
+다음 물리 값은 `generated/device.cmake`에 있으며 CMSIS-Pack에서 가져옵니다.
+이 파일을 직접 수정하지 말고 target 명령을 다시 실행하세요.
 
 | 변수 | 의미 |
 |---|---|
-| `FLASH_ORIGIN` | 보통 `0x08000000`. bootloader 뒤에 애플리케이션을 배치하려면 변경합니다. |
+| `FLASH_ORIGIN` | 물리 Flash 시작 주소. 보통 `0x08000000`입니다. |
 | `FLASH_SIZE` | 연속된 flash 크기. 서로 맞닿은 bank는 합치므로 STM32H743의 1 MB bank 두 개는 `2048K`가 됩니다. |
 | `RAM_ORIGIN` | linker script에서 사용하는 RAM 블록의 시작 주소. |
 | `RAM_SIZE` | 해당 블록의 크기. 서로 맞닿은 영역은 합치므로 STM32U575의 SRAM1+2+3은 `768K`가 됩니다. |
-| `RAM_REGION` | 비어 있으면 pack에서 `0x20000000`에 배치한 영역을 선택합니다. 다른 영역을 사용하려면 이름을 지정합니다. |
+| `STM32_RAM_REGION` | setup이 선택한 Pack 영역의 이름. |
 
 `RAM_REGION`의 동작은 알아둘 필요가 있습니다. 기본값은 가장 큰 영역이
 아닙니다. STM32H743의 경우 pack에는 `DTCMRAM`(128K), `RAM_D1`(512K),
@@ -288,10 +286,20 @@ tick: 2
 오히려 잘못인 경우가 많습니다. 모든 STM32에서 `0x20000000`에 있는 영역은
 TCM 또는 main SRAM이며 reset 직후부터 사용할 수 있습니다. 반면 `RAM_D2`와
 `RAM_D3`는 먼저 RCC clock을 활성화해야 하므로 바로 점프하면 프로그램이
-멈춥니다. `setup.py`는 찾은 모든 영역을 출력합니다.
+멈춥니다. `setup.py`는 찾은 모든 영역을 출력합니다. 다른 영역도 같은 원자적
+target 명령에서 선택합니다.
+
+```sh
+python3 tools/setup.py target --board CoreH743I --ram-region RAM_D1
+```
+
+Pack 값에서 의도적으로 벗어나야 한다면 `config.cmake`의 명시적인
+`TARGET_*_OVERRIDE` 변수를 사용합니다. 타깃을 바꾸면 모두 초기화되므로 이전
+MCU의 override가 새 MCU로 넘어가지 않습니다.
 
 ```cmake
-set(RAM_REGION "RAM_D1")     # RAM_ORIGIN과 RAM_SIZE를 비운 뒤 setup.py 재실행
+set(TARGET_RAM_ORIGIN_OVERRIDE "0x24000000")
+set(TARGET_RAM_SIZE_OVERRIDE "512K")
 ```
 
 ### Console
@@ -331,14 +339,21 @@ system clock이 잘못 계산되고 console 출력이 깨집니다.
 
 ### 디바이스
 
+다음 값은 직접 관리하는 설정이 아니라 `generated/device.cmake`에 기록되는
+읽기 전용 정보입니다.
+
 | 변수 | 의미 |
 |---|---|
 | `FAMILY` | `H7`, `G0` 등. submodule 디렉터리 이름을 결정합니다. |
 | `DEVICE_DEFINE` | 예: `STM32H743xx`. CMSIS 헤더와 startup 파일을 선택합니다. |
+| `PROCESSOR_CORE` / `PROCESSOR_FPU` | Pack record에서 선택한 processor 속성입니다. |
 | `CPU_FLAGS` | 예: `-mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard`. |
+| `STM32_PACK_*` | 이 파일을 파생할 때 사용한 URL, vendor, Pack 이름/version과 정확한 part record입니다. |
 
-세 값은 모두 pack에서 가져옵니다. 특별한 설정이 필요하면 `CPU_FLAGS`를
-직접 덮어쓸 수 있습니다.
+값을 다시 만들려면 `setup.py target`을 실행하세요. 프로젝트에서 의도적으로
+다른 compiler flag가 필요할 때만 `config.cmake`의
+`TARGET_CPU_FLAGS_OVERRIDE`를 사용합니다. 다음 retarget에서 이 override는
+초기화됩니다.
 
 ### RTOS
 
@@ -389,51 +404,40 @@ bit 수가 프로젝트마다 복사되지 않고 `config.cmake`를 따라갑니
 
 ## 칩 또는 보드 변경
 
-`config.cmake`에는 동작하는 `CoreH743I` 예제가 들어 있습니다.
-`setup.py --list-boards`에 있는 보드를 선택하려면 `BOARD`를 설정하고
-`MCU`, console 필드, 파생 필드를 비우세요. `setup.py`는 `MCU`가 비어 있을
-때만 보드 기본값을 채웁니다.
-
-```cmake
-set(BOARD "NUCLEO-F411RE")
-set(MCU "")
-set(FLASH_ORIGIN "")
-set(FLASH_SIZE "")
-set(RAM_ORIGIN "")
-set(RAM_SIZE "")
-set(RAM_REGION "")
-set(FAMILY "")
-set(DEVICE_DEFINE "")
-set(CPU_FLAGS "")
-set(CONSOLE_UART "")
-set(CONSOLE_TX "")
-set(CONSOLE_RX "")
-set(CONSOLE_AF "")
-```
-
-MCU를 직접 지정하려면 `MCU`를 설정하고, `BOARD`는 알아보기 쉬운 이름으로
-바꾸거나 비우세요. 같은 파생 필드를 비운 뒤 `setup.py pins`를 참고해
-console 필드는 직접 설정합니다. 두 경우 모두 `HSE_HZ`를 검토하세요. 이
-값은 보드 속성이므로 `setup.py`가 의도적으로 자동 계산하지 않습니다.
-
-그다음 다시 생성하고 빌드합니다.
+`config.cmake`에는 동작하는 `CoreH743I` 예제가 들어 있습니다. 관련 값을
+일일이 수정하고 비우는 대신 명령 하나로 교체하세요.
 
 ```sh
-python3 tools/setup.py          # 새 패밀리를 가져오고 빈 값을 다시 채움
-python3 tools/setup.py pins     # console pin 선택을 확인
-rm -rf build                    # linker script와 board.h는 다시 생성됩니다
+python3 tools/setup.py --list-boards
+python3 tools/setup.py target --board NUCLEO-F411RE
 cmake --preset default && cmake --build --preset default
 ```
 
-예전 패밀리의 submodule은 남아 있습니다. 다시 사용할 계획이 없다면 아래
-설명을 참고해 제거하세요.
+모든 STM32를 선택할 수 있는 것은 아닙니다. 멀티코어, 내장 Flash가 없는 칩 등은
+거부됩니다. 목록과 판정 근거는 [docs/unsupported-mcu.md](docs/unsupported-mcu.md)에
+있습니다.
+
+목록에 없는 보드는 MCU를 직접 선택한 뒤 보드 배선을 설정합니다.
+
+```sh
+python3 tools/setup.py target --mcu STM32G071RBTx
+python3 tools/setup.py pins USART2
+$EDITOR config.cmake             # console pin과 HSE_HZ
+cmake --preset default && cmake --build --preset default
+```
+
+이 명령은 전체 Pack record를 해석하고 검증한 뒤에만 타깃 파일을 교체합니다.
+사용자 의도는 `config.cmake`, 물리 device/core 정보와 Pack provenance는
+`generated/device.cmake`에 기록합니다. network 조회나 dependency 설정이
+실패하면 두 타깃 파일은 모두 이전 상태로 유지됩니다. 예전 패밀리의
+submodule은 남겨 두고 이를 출력하므로 새 타깃을 검증한 다음 명시적으로
+제거하세요.
 
 `tools/try_board.py`는 이 작업을 임시 복사본에서 모두 실행합니다. 칩을
 실제 프로젝트에 반영하기 전에 가장 빠르게 확인할 수 있는 방법입니다.
 
 ```sh
 python3 tools/try_board.py NUCLEO-F411RE
-python3 tools/try_board.py "" STM32G071RBTx
 ```
 
 실행할 때마다 시스템 임시 디렉터리 아래에 고유한 새 디렉터리를 만들고, 종료할
@@ -441,7 +445,12 @@ python3 tools/try_board.py "" STM32G071RBTx
 사용하고, 상위 경로를 바꾸려면 이미 존재하는 디렉터리를 `TRY_DIR`로 지정하세요.
 기본값은 tracked 파일만 복사합니다. 현재 untracked 파일이 필요한 테스트에서만
 `--include-untracked`를 사용하세요. `--flash`는 지정한 보드를 빌드한 뒤 연결된
-ST-LINK를 통해 프로그램합니다.
+ST-LINK를 통해 프로그램합니다. 복사 또는 dependency 다운로드를 시작하기 전에
+Git, CMake, Ninja, Arm toolchain과 `--flash`에서 필요한 `st-flash`를 검사합니다.
+`setup.py doctor`의 OS별 탐색을 재사용하므로 PATH 밖에서 찾은 Arm toolchain도
+모든 child command에 자동으로 전달하며 사용자가 환경 변수를 지정할 필요가
+없습니다. 이 도구는 배선 정보까지 갖춘 보드 항목만 받습니다. 목록에 없는 보드는
+위의 MCU 절차로 console 배선을 설정한 뒤 빌드하세요.
 
 ## 라이브러리 추가
 
@@ -584,8 +593,9 @@ stdout이 완전히 buffering되어 1 KB가 쌓일 때까지 아무것도 출력
 | 메모리 맵, 디바이스 define, core/FPU | `keil.com/pack/Keil.STM32<FAM>xx_DFP.pdsc` |
 | Console pin과 AF 후보 | `github.com/STMicroelectronics/STM32_open_pin_data` |
 
-마지막 두 항목은 `setup.py`만 읽으며, 찾은 내용은 `config.cmake`에
-기록됩니다. 빌드할 때는 네트워크가 필요하지 않습니다.
+마지막 두 항목은 `setup.py`만 읽습니다. device 정보와 Pack provenance는
+`generated/device.cmake`, 사용자 정책은 `config.cmake`에 기록됩니다.
+빌드할 때는 네트워크가 필요하지 않습니다.
 
 CMSIS 헤더만으로는 충분하지 않습니다. Base address는 있지만 크기는 없고,
 헤더의 `FLASH_SIZE`는 linker가 사용할 수 없는 flash size register의 runtime
@@ -596,9 +606,8 @@ script를 제공합니다. CMSIS-Pack에는 CubeMX도 사용하는 실제 디바
 
 ## 제한 사항
 
-- `setup.py`는 오프라인 fallback으로만 부품 번호에서 flash 크기를
-  계산하며, 이 fallback은 STM32H7RS 또는 STM32N6 명명 규칙을 이해하지
-  못합니다. Pack에 연결할 수 있으면 이 fallback은 사용하지 않습니다.
+- 타깃 변경 시에는 CMSIS-Pack에 연결할 수 있어야 합니다. 연결할 수 없으면
+  불완전한 memory map을 만들지 않고 기존 타깃 파일을 그대로 유지합니다.
 - 보드 표에는 네 항목만 있습니다. 다른 보드는 `MCU`와 console pin을 직접
   설정해야 하며, 번거로운 pin 확인은 `setup.py pins`가 처리합니다.
 - linker script에는 RAM 영역 하나만 전달됩니다. STM32H7의 다른 SRAM이나

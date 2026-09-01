@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest import mock
 
 from tools import try_board
 
@@ -16,14 +17,10 @@ class ArgumentTests(unittest.TestCase):
                 try_board.parse_args(argv)
         self.assertEqual(caught.exception.code, 2)
 
-    def test_accepts_board_and_mcu_modes(self):
+    def test_accepts_board_mode(self):
         board = try_board.parse_args(["NUCLEO-F411RE", "--keep"])
         self.assertEqual(board.board, "NUCLEO-F411RE")
         self.assertTrue(board.keep)
-
-        mcu = try_board.parse_args(["", "STM32G071RBTx", "--include-untracked"])
-        self.assertEqual(mcu.mcu, "STM32G071RBTx")
-        self.assertTrue(mcu.include_untracked)
 
     def test_rejects_missing_or_path_like_targets(self):
         invalid_argv = (
@@ -32,7 +29,7 @@ class ArgumentTests(unittest.TestCase):
             ["../victim"],
             ["board/name"],
             [r"board\name"],
-            ["", "../../victim"],
+            [""],
         )
         for argv in invalid_argv:
             with self.subTest(argv=argv):
@@ -40,7 +37,68 @@ class ArgumentTests(unittest.TestCase):
 
     def test_rejects_unknown_options_and_extra_positionals(self):
         self.parse_error(["NUCLEO-F411RE", "--unknown"])
-        self.parse_error(["BOARD", "MCU", "EXTRA"])
+        self.parse_error(["BOARD", "EXTRA"])
+
+
+class HostToolTests(unittest.TestCase):
+    @staticmethod
+    def tool_lookup(missing=()):
+        paths = {
+            "git": "/tools/git",
+            "cmake": "/tools/cmake",
+            "ninja": "/tools/ninja",
+            "st-flash": "/tools/st-flash",
+        }
+        return lambda tool: None if tool in missing else paths.get(tool)
+
+    def test_off_path_toolchain_is_exported_to_child_environment(self):
+        bindir = Path("/opt/arm/bin")
+        with mock.patch.object(
+                try_board.shutil, "which", side_effect=self.tool_lookup()), \
+             mock.patch.object(
+                 try_board.setup_tool, "find_toolchain",
+                 return_value=(bindir, False)), \
+             mock.patch.object(try_board.setup_tool, "has_newlib", return_value=True), \
+             contextlib.redirect_stdout(io.StringIO()):
+            env = try_board.build_environment(flash=True)
+        self.assertEqual(env["ARM_TOOLCHAIN_BIN"], str(bindir))
+
+    def test_missing_tools_fail_before_a_workspace_is_created(self):
+        with mock.patch.object(
+                try_board.shutil, "which",
+                side_effect=self.tool_lookup({"ninja"})), \
+             mock.patch.object(
+                 try_board.setup_tool, "find_toolchain",
+                 return_value=(None, False)):
+            with self.assertRaisesRegex(
+                    RuntimeError, "ninja, arm-none-eabi-gcc"):
+                try_board.build_environment()
+
+    def test_flash_requires_st_flash(self):
+        with mock.patch.object(
+                try_board.shutil, "which",
+                side_effect=self.tool_lookup({"st-flash"})), \
+             mock.patch.object(
+                 try_board.setup_tool, "find_toolchain",
+                 return_value=(Path("/opt/arm/bin"), True)), \
+             mock.patch.object(try_board.setup_tool, "has_newlib", return_value=True):
+            with self.assertRaisesRegex(RuntimeError, "st-flash"):
+                try_board.build_environment(flash=True)
+
+
+class BuildInvocationTests(unittest.TestCase):
+    def test_discovered_environment_reaches_every_child_command(self):
+        env = {"ARM_TOOLCHAIN_BIN": "/opt/arm/bin"}
+        with tempfile.TemporaryDirectory() as temporary, \
+             mock.patch.object(try_board.subprocess, "run") as raw_run, \
+             mock.patch.object(try_board, "run") as child_run:
+            try_board.build_in_workspace(
+                Path(temporary), "CoreH743I", flash=True, env=env)
+
+        raw_run.assert_called_once()
+        self.assertEqual(child_run.call_count, 4)
+        for call in child_run.call_args_list:
+            self.assertIs(call.kwargs["env"], env)
 
 
 class WorkspaceTests(unittest.TestCase):

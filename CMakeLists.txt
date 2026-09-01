@@ -2,6 +2,11 @@
 cmake_minimum_required(VERSION 3.21)
 
 include(${CMAKE_CURRENT_LIST_DIR}/config.cmake)
+set(STM32_DEVICE_CONFIG ${CMAKE_CURRENT_LIST_DIR}/generated/device.cmake)
+if(NOT EXISTS ${STM32_DEVICE_CONFIG})
+  message(FATAL_ERROR "generated/device.cmake is missing. Run tools/setup.py target")
+endif()
+include(${STM32_DEVICE_CONFIG})
 
 # Without this CMake passes no -O and no -g, so the debugger cannot see any
 # variable. Override with -DCMAKE_BUILD_TYPE=MinSizeRel when size matters.
