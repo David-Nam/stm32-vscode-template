@@ -2,240 +2,182 @@
 
 작성 기준: 2026-08-18
 
-최종 갱신: 2026-08-19
+최종 갱신: 2026-09-01 (Stage 2 commit)
 
 ## 1. 목적
 
-이 문서는 CubeMX 기반 프로젝트를 별도의 형제 템플릿으로 분리한다는 전제에서,
-현재 저장소를 가볍고 재현 가능한 `config.cmake` 기반 STM32 CMake 템플릿으로
-정리하기 위한 구현 순서와 검증 기준을 정의한다.
+이 저장소를 가볍고 예측 가능한 `config.cmake` 기반 STM32 CMake 템플릿으로
+정리한다. 목표는 세 가지다.
 
-이 계획의 핵심 목표는 기능 수를 무조건 늘리는 것이 아니다. 기존 단일 image의
-안전성과 재현성을 먼저 보장한 뒤, 같은 구조를 여러 실행 image로 일반화한다.
-다음 다섯 가지를 목표로 한다.
+1. 타깃 설정은 프로젝트 시작 시 한 번이다. 바꿀 때는 이전 값을 고쳐 쓰지 않고
+   파생물을 지운 뒤 다시 만든다.
+2. 지원하지 않는 칩은 파일을 하나라도 바꾸기 전에 명확한 이유와 함께 거부한다.
+3. H7 말고 다른 STM32도 명령 하나로 쓸 수 있다.
 
-1. 타깃을 변경해도 이전 MCU의 설정이 섞이지 않는다.
-2. MCU의 processor topology를 임의로 단순화하지 않고, 지원하지 않는 조합은 파일을
-   변경하기 전에 명확하게 거부한다.
-3. 같은 입력과 dependency lock은 같은 firmware를 만든다.
-4. build, flash, debug 경로가 같은 target과 artifact를 사용한다.
-5. single-core, bootloader/application, STM32H7 dual-core를 별도 템플릿이 아니라
-   동일한 image-target build model로 표현한다.
+기능 수를 늘리는 것이 목표가 아니다. 이 템플릿은 단일 코어, 단일 실행 image에
+고정하고, 새 칩을 만나면 옵션을 추가하는 대신 템플릿 자체를 고친다.
 
-## 2. 제품 범위
+## 2. 범위
 
-### 현재 보장 범위
+### 지원
 
-- `config.cmake`를 사용자 설정의 시작점으로 사용
-- 단일 Cortex-M 코어
-- 내장 Flash
-- non-secure 단일 image
+- 단일 Cortex-M 코어, 내장 Flash, 단일 image
 - STM32 HAL1
-- 하나의 주 RAM 영역
+- 주 RAM 영역 하나 (H7처럼 여러 개면 `RAM_REGION`으로 선택)
 - Arm GNU Toolchain + CMake + Ninja
 - bare-metal 또는 FreeRTOS
 - Cortex-Debug 기반 VS Code build/flash/debug
+- macOS, Linux, Windows
+- README.md와 README_KOR.md 두 언어
 
-### 이 계획에서 추가할 범위
+호스트 도구 점검, 라이브러리 추가 명령, 팀 온보딩 같은 프로젝트 운영은 지원 범위가
+아니다. 그것을 아는 사람이 만들어야 한다.
 
-- 하나의 project에서 하나 이상의 독립 실행 image 정의
-- 기존 single-core application을 image 한 개로 표현
-- 같은 코어의 bootloader + application multi-image build
-- STM32H745/H747/H755/H757 계열의 Cortex-M7 + Cortex-M4 AMP build
-- image별 startup, compile option, define, linker layout, artifact와 debug 정보
-- image별 build/flash/debug와 project 전체 `build-all`/`flash-all`
-- 여러 image를 하나의 배포용 HEX로 결합하는 선택 기능
-- 공통 source와 core 간 shared-memory 영역의 명시적 선언 및 충돌 검사
+### 배포 형태
 
-여기서 `image`는 파일 확장자나 배포 파일 개수가 아니라 **독립적으로 컴파일되고
-링크되는 실행 단위**를 뜻한다. 여러 image를 최종 HEX 하나로 합쳐도 build
-관점에서는 복수 image다.
+이 저장소는 GitHub 템플릿으로 등록되어 "Use this template"으로 복제된다. 따라서
+다음이 따라온다.
 
-### 현재 계획에서 보류하거나 명시적으로 거부할 범위
+- 저장소의 모든 파일이 생성된 프로젝트로 복사된다. 템플릿에서만 쓰는 것은
+  `template/` 한 폴더에 모아, 첫 프로젝트 체크리스트가 그 폴더만 지우게 한다.
+  `setup.py`도 여기 들어간다. 첫 설정을 마치면 할 일이 없기 때문이다.
+- 첫 설정이 만든 것(`generated/device.cmake`, `inc/`의 HAL 설정,
+  `docs/libraries-<fam>.md`, `lib/`의 서브모듈)은 그 프로젝트의 것이 되고, 이후
+  관리는 프로젝트가 한다.
+- 템플릿 갱신은 생성된 프로젝트로 전파되지 않는다. 새 칩 지원을 추가해도 기존
+  프로젝트는 직접 가져가야 한다.
+- `.github/workflows`도 복사되어 남의 저장소에서 실행되므로, 워크플로는 템플릿
+  저장소에서만 돌도록 조건을 건다.
+- 템플릿은 설정이 비어 있는 상태로 출하한다. 첫 명령은 언제나
+  `setup.py --board <name>` 또는 `--mcu <part>`이고, 한 번만 실행된다.
 
-- flashless MCU
-- STM32C5/HAL2/CubeMX2 계열
-- 별도 family adapter 없이는 공통 GPIO/UART 모델로 표현할 수 없는 MCU
-- `.ioc` 해석, CubeMX code generation, 공식 ST VS Code extension 의존
+### 지원하지 않음
 
-TrustZone secure/non-secure pair는 multi-image 기반을 재사용할 수 있지만 SAU/IDAU,
-secure gateway, secure boot와 debugger 연동이 추가로 필요하므로 이번 안정화 범위
-이후의 별도 adapter 단계로 보류한다. flashless MCU는 외부 memory controller 초기화와
-stage-1 loader가 board에 종속되므로 범용 MCU template의 자동 파생 대상으로 삼지 않는다.
+조용히 오동작하게 두지 않고 `setup.py`가 조기에 실패시킨다.
 
-현재 구현 단계에서 아직 활성화되지 않은 target과 명시적 비지원 범위는 조용히
-오동작하게 두지 않고 `setup.py`에서 capability와 필요한 다음 단계를 설명하며 조기에
-실패시키는 것을 원칙으로 한다.
+- 서로 다른 코어를 가진 멀티코어 MCU (STM32H745/H747/H755/H757, STM32WL54/WL55)
+- 내장 Flash가 없거나 boot flash만 있는 MCU (STM32N657, STM32H7S3/H7S7)
+- Cortex-A 계열 (STM32MP1/MP2)
+- STM32F1 (HAL의 alternate function 모델이 달라 `board.h.in`이 컴파일되지 않는다)
+- TrustZone secure/non-secure 분리
+- HAL2 / STM32C5 계열
+- bootloader + application 같은 복수 image
 
-## 3. 확인된 멀티코어와 image 모델
+목록과 판정 근거는 [docs/unsupported-mcu.md](unsupported-mcu.md)에 두고 README
+양 언어에서 링크한다. 새 제외 사례를 찾으면 그 문서에 추가한다.
 
-### Dual-core 자체는 image 개수를 결정하지 않는다
+보조 코어가 있어도 사용자가 image 하나만 build하면 멀티코어로 보지 않는다.
+STM32WB55의 Cortex-M0+는 ST의 무선 스택 전용이고 Pack에도 processor가 하나만
+있으므로 일반 단일 image 타깃이다.
 
-dual-core라는 사실만으로 image가 반드시 두 개가 되는 것은 아니다. 판단 기준은
-코어 수가 아니라 processor topology와 실행 model이다.
+### 전제하지 않는 것
 
-- **동형 SMP**: 동일한 코어가 같은 주소 공간과 하나의 OS/runtime을 공유하면
-  application ELF 하나를 두 코어가 실행할 수 있다. ESP32의 ESP-IDF FreeRTOS가 이
-  방식이며 task affinity로 실행 코어를 지정한다.
-- **이종 AMP**: 코어별 startup, vector table, compile option, linker layout과 boot
-  address가 다르면 코어마다 독립 실행 image가 필요하다. STM32H745/H747의
-  Cortex-M7 + Cortex-M4가 대표적이다.
-- **보조 코어 미사용**: 두 번째 코어를 reset/stop 상태로 유지하면 사용자 image는
-  하나일 수 있다.
-- **제조사 관리 보조 코어**: 사용자가 application image 하나만 build하더라도 장치에는
-  별도의 vendor firmware가 존재할 수 있다.
+과거 계획에 있었으나 실제 요구가 없어 삭제한 전제다. 다시 넣지 않는다.
 
-STM32H7 AMP에서 CM7과 CM4 image는 별도로 링크하지만 한 project와 한 repository에서
-관리한다. flash 단계에서 두 HEX를 하나의 combined HEX로 합칠 수도 있다. 따라서
-`dual-core template`을 별도로 복제하지 않고 `image target` 두 개와 이를 묶는 project
-target으로 표현한다.
+- 인터넷이 없는 환경. clone과 `setup.py target`은 네트워크를 쓴다.
+- 같은 template commit이 항상 같은 바이너리를 만든다는 보장. HAL을 upstream
+  기본 branch에서 받으므로 성립하지 않으며, 성립시키려 lock 파일을 두지 않는다.
+- 타깃을 자주 바꾼다는 전제. 보통 프로젝트 시작 시 한 번이다.
+- 테스트의 병렬 실행.
+- 악의적인 사용자 입력. `try_board.py`의 경로 안전장치는 과거의 실제 삭제 사고를
+  막기 위한 것이지 공격을 가정한 것이 아니다.
 
-공식 근거:
+## 3. 현재 기준선
 
-- [Espressif ESP-IDF FreeRTOS SMP 문서](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/freertos_idf.html): 동일한 코어와 공유 memory를 사용하는 SMP 및 task affinity 설명
-- [ST AN5361 — dual-core STM32H7 project](https://www.st.com/resource/en/application_note/dm00629855.pdf): root project 아래 core별 MCU subproject, build/debug configuration 설명
-- [ST STM32CubeH7 user manual](https://www.st.com/resource/en/user_manual/dm00386433-getting-started-with-stm32cubeh7-for-stm32h7-series--stmicroelectronics.pdf): dual-core example의 `CM7`, `CM4`, `Common` 구조 설명
-- [ST CubeIDE for VS Code dual-core 문서](https://dev.st.com/stm32cube-docs/stm32cubeide-vscode/1.0.1/en/docs/markup/tutorials/dual_core.html): core별 vector table, linker script, startup와 두 project 연결 방식 설명
+- Stage 1, Stage 2 완료 및 commit (`a505a45`, `a67a11b`). 다음은 Stage 3.
+- `docs/unsupported-mcu.md`는 작성했으나 아직 untracked. Stage 3에서 함께 commit한다.
+- `python3 tools/setup.py --self-test` 통과
+- fresh build 통과: CoreH743I, NUCLEO-F411RE, NUCLEO-G071RB
+- 하드웨어 확인(2026-08-19): CoreH743I/STM32H743IITx에서 `--flash` 후 UART로
+  FreeRTOS tick과 4,624 byte free heap 확인
+- 알려진 미해결
+  - `RAM_REGION`이 FLASH 영역 이름도 받아들인다
+  - CMake `clean` 이후 `.bin`, `.hex`, `.map`이 남는다
+  - `config.cmake`와 `generated/device.cmake`가 CoreH743I로 출하되어, 다른 보드
+    사용자가 콘솔 핀과 HSE를 지우지 않으면 조용히 틀린 값을 쓴다
+  - `.vscode/launch.json`에 `build/stm32-template.elf`가 하드코딩되어 있다
+  - 템플릿에서만 쓰는 것들이 생성된 프로젝트로 복사된다. 유지보수 문서,
+    `tools/`, `tests/`, `CLAUDE.md`가 여러 군데로 흩어져 있다
+  - `tools/`와 `tests/`가 루트 이름을 선점해, 프로젝트가 자기 것을 둘 자리가 없다
+  - `setup.py`가 여러 번 실행된다고 가정해 상태 판단 코드를 안고 있고,
+    호스트 툴체인 탐색과 VSCode 설정 수정까지 한다 (191줄)
+  - `setup.py add`는 개발 중에 쓰는 명령인데, 그때 `setup.py`는 이미 없다
+  - 자동 CI가 없다
 
-### 이 템플릿에서 사용할 추상화
+## 4. 원칙
 
-```text
-project
-├── image: application               # 기존 single-core와 동일
-├── image: bootloader + application  # 같은 core, 다른 Flash slot
-└── image: cm7 + cm4                 # 다른 core, core별 build context
-```
+1. **옵션을 늘리지 않는다.** 새 설정 변수는 실제로 걸린 문제를 푸는 경우에만
+   추가한다. 구현체가 하나뿐인 확장 지점을 새로 만들지 않는다.
+2. **새 칩은 코드가 아니라 값이다.** 패밀리 지원은 ST의 split 저장소 이름 규칙과
+   CMSIS-Pack에서 파생된다. 패밀리 이름은 `cmake/`, `app/`, `bsp/`, `drivers/`,
+   `middleware/` 어디에도 나오지 않는다.
+3. **라이브러리는 통째로 쓴다.** 패밀리마다 ST 저장소 두 개
+   (`cmsis-device-<fam>`, `stm32<fam>xx-hal-driver`)를 submodule로 붙이고, 그
+   안에서 파일을 골라내지 않는다. `Src/*.c`는 `_template.c`만 빼고 전부
+   컴파일하고 나머지는 `--gc-sections`가 버린다. 예외는 `inc/`로 복사하는
+   `*_hal_conf.h` 하나이며, 이는 프로젝트가 수정해서 소유해야 하는 파일이다.
+4. **디바이스 값의 소스는 CMSIS-Pack PDSC 하나다.** Flash/RAM 주소와 크기, 코어,
+   FPU는 PDSC에서만 읽는다. STM32Cube 저장소의 예제 링커 스크립트는 IDE가 자동
+   생성한 파일이고 ST 평가보드 품번만 담고 있으므로 소스로 쓰지 않는다. 조회는
+   `setup.py target` 실행 시 1회이며 결과와 팩 버전은 `generated/device.cmake`에
+   커밋된다.
+5. **`setup.py`는 첫 설정만 하고 사라진다.** 칩이 바뀌면 다른 프로젝트이고,
+   보드가 바뀌어도 다른 프로젝트다. 템플릿은 시작점이지 사용자 프로젝트의 관리
+   도구가 아니다. 한 번만 실행된다고 정하면 "지금 어떤 상태인가"를 판단할 코드가
+   전부 없어진다. 이미 설정된 상태를 만나면 거부한다.
+6. **한 번 쓰고 버릴 도구가 만드는 것은 문서로 남긴다.** 도구는 지워져도 문서는
+   프로젝트에 남는다. 라이브러리 목록이 그 예다.
+7. **지원 밖은 파일을 바꾸기 전에 거부한다.**
 
-image마다 최소한 다음 속성을 독립적으로 가진다.
+## 5. 단계 요약
 
-- processor/core와 compiler flags
-- device/core define
-- startup와 vector table
-- Flash/RAM linker region
-- source/include/library target
-- `.elf`, `.bin`, `.hex`, `.map`
-- flash 및 debug configuration
-
-project는 image 사이의 build 순서, memory overlap, shared region, boot 순서와 combined
-artifact를 관리한다. 이 구조에서 single-core는 예외가 아니라 image가 하나인 가장 단순한
-구성이다.
-
-### CubeMX와 공식 ST VS Code extension의 경계
-
-CubeMX `.ioc`와 현재 `config.cmake`는 같은 하드웨어 설정에 대해 서로 다른 source of
-truth다. CubeMX code generation을 현재 템플릿에 부분적으로 섞으면 startup, HAL init,
-middleware, linker와 `main`의 소유권이 충돌한다. 따라서 `.ioc`-first workflow는 형제
-템플릿으로 분리한다.
-
-공식 `STM32CubeIDE for Visual Studio Code` 확장은 단순한 파일 참조기만은 아니다.
-empty CMake project 생성, CubeMX 생성 project의 import/discovery, firmware example
-import, 기존 Eclipse 기반 CubeIDE project 변환, build/debug와 tool bundle 관리를
-제공한다. 그러나 `.ioc`의 pin/clock/peripheral 시각 설정 자체를 VS Code 안에 다시
-구현한 것은 아니며, 공식 project 생성 문서도 그 단계에서는 standalone CubeMX를
-열도록 안내한다.
-
-따라서 적용 원칙은 다음과 같다.
-
-- 현재 lightweight `config.cmake` 템플릿은 ST extension pack에 의존하지 않는다.
-- 현재 템플릿의 기본 extension recommendation에도 전체 ST pack을 추가하지 않는다.
-- CubeMX 형제 템플릿은 standalone CubeMX를 source-of-truth editor로 사용한다.
-- CubeMX 형제 템플릿에서는 import/discovery/build/debug가 필요할 때 ST extension을
-  선택적으로 사용할 수 있다.
-- ST extension이 설치되어 있어도 현재 템플릿을 CubeMX-owned project로 자동 변환하거나
-  `.ioc`와 `config.cmake`의 양방향 동기화를 시도하지 않는다.
-
-공식 근거:
-
-- [ST 첫 project 생성 문서](https://dev.st.com/stm32cube-docs/stm32cubeide-vscode/latest/en/docs/markup/getting_started/first_project_creation.html): empty CMake 생성과 standalone CubeMX project import 절차
-- [ST extension marketplace](https://marketplace.visualstudio.com/items?itemName=stmicroelectronics.stm32-vscode-extension): extension pack, project 생성, discovery, debug 및 bundle 기능
-- [ST CMake 문서](https://dev.st.com/stm32cube-docs/stm32cubeide-vscode/latest/en/docs/markup/basic_concepts/cmake.html): CubeMX-owned CMake와 user-owned CMake 파일의 경계
-
-## 4. 확인된 현재 기준선
-
-- `python3 tools/setup.py --self-test`: 통과
-- Arm GNU Toolchain 15.3.1 fresh build:
-  - CoreH743I: 통과
-  - NUCLEO-F411RE: 통과
-  - NUCLEO-G071RB: 통과
-- 실제 CMSIS-Pack 표본:
-  - H743, F411, U575: 기본 정보 파생 성공
-  - H745: 복수 processor를 보존하지 않고 마지막 Cortex-M4로 덮어쓴 뒤 build 실패
-  - N657: 내장 Flash가 없어 현재 linker model에서 실패
-- CMake `clean` 이후 `.bin`, `.hex`, `.map`이 남음
-- 저장소에 자동 CI workflow가 없음
-
-따라서 현재 build 기반은 유지할 수 있지만, processor context를 명시적으로 모델링하지
-않은 채 dual-core 지원을 선언해서는 안 된다. fail-closed 검증과 재현성 기준선을 만든
-뒤 single-image CMake를 image-target 구조로 일반화한다.
-
-## 5. 우선순위 요약
-
-| 순서 | 우선순위 | 단계 | 완료 결과 |
+| 순서 | 우선순위 | 단계 | 끝나면 이렇게 된다 |
 |---:|---|---|---|
-| 1 | P0 | 테스트 임시 경로 안전화 | 테스트 도구가 기존 파일을 삭제할 수 없음 |
-| 2 | P0 | 타깃 설정의 단일 source of truth | BOARD/MCU와 파생값이 원자적으로 일치 |
-| 3 | P0 | MCU topology/capability와 입력 검증 | processor를 임의 선택하지 않고 topology를 보존 |
-| 4 | P1 | Cube 경계와 library 연결 정리 | `add cube`와 재귀 source glob 제거 |
-| 5 | P1 | dependency lock과 CI 기준선 | 대규모 CMake 변경 전 자동 회귀 검사 확보 |
-| 6 | P1 | image-target CMake 기반 | 기존 single image를 일반화된 target 하나로 동일하게 build |
-| 7 | P1 | bootloader/application multi-image | 같은 core의 두 image와 Flash layout/VTOR 계약 지원 |
-| 8 | P1 | STM32H7 heterogeneous dual-core | CM7/CM4별 build context와 shared-memory/boot 계약 지원 |
-| 9 | P1 | multi-image artifact/flash/debug | image별 및 전체 build/flash/debug와 combined HEX 제공 |
-| 10 | P2 | build와 dependency 경량화 | clone 및 compile 비용 감소 |
-| 11 | P2 | 설정 UX와 문서 마무리 | 첫 사용과 multi-image 설정이 짧고 모호하지 않음 |
+| 1 | P0 | 시험 빌드 도구가 남의 폴더를 지우지 않게 | 보드 이름을 잘못 입력해도 실제 폴더가 안 지워짐 |
+| 2 | P0 | 칩 바꾸기를 명령 한 번으로 | 칩을 바꿀 때 손으로 맞출 값이 없음 |
+| 3 | P0 | 빈 상태로 출하, 한 번만 실행, 못 쓰는 칩 거부 | 첫 명령이 칩 선택이고, 다시 돌리면 거부되며, 못 쓰는 칩은 파일을 바꾸기 전에 막힘 |
+| 4 | P1 | 안 쓰는 명령 제거, 라이브러리 목록 문서화 | `add`가 사라지고, 대신 그 패밀리의 ST 라이브러리 목록이 `docs/`에 남음 |
+| 5 | P1 | 새 칩 추가 절차와 템플릿 전용 파일 격리 | 새 보드를 표 한 줄로 추가하고, 프로젝트는 `template/` 폴더 하나만 지우면 됨. `tools/`와 `tests/`가 비워짐 |
+| 6 | P2 | 이름을 바꾸면 경로도 따라오게 | 이름을 바꿔도 손으로 맞출 곳이 없고 `clean`이 다 지움 |
+| 7 | P2 | CI (선택) | PR마다 자동으로 테스트와 빌드가 돌아감 |
 
-Stage 1~5는 안전·회귀 기준선, Stage 6~9는 multi-image 확장 기준, Stage 10~11은
-경량화와 사용성 개선으로 본다. 각 단계는 기존 single-image build를 계속 통과시켜야
-하며, dual-core 기능 때문에 기본 사용 경로가 복잡해져서는 안 된다.
+각 단계는 기존 단일 image build를 계속 통과시켜야 한다.
 
 ## 6. 단계별 구현 계획
 
-## Stage 1 — 테스트 임시 경로 안전화
+각 Stage는 "무엇을 한 줄로 바꾸는가"부터 적는다. 자세한 항목은 그 아래에 둔다.
+
+## Stage 1 — 시험 빌드 도구가 남의 폴더를 지우지 않게
 
 우선순위: P0
 
+**한 줄 요약**: 보드 이름을 잘못 입력해도 실제 폴더가 지워지지 않는다.
+
 ### What
 
-- `try_board.py`의 고정 경로 생성과 선행 `shutil.rmtree()`를 제거한다.
-- `tempfile.mkdtemp()`로 실행마다 새로운 디렉터리를 만든다.
-- `TRY_DIR`을 사용할 때 resolve한 경로가 허용된 부모 아래인지 검증한다.
-- 기본값은 tracked file만 복사하고, untracked file 포함은 명시적 option으로 둔다.
-- 성공 시 자동 정리하고 `--keep`일 때만 경로를 보존한다.
-- `argparse`를 사용해 알 수 없는 option과 잘못된 BOARD/MCU 문자열을 거부한다.
-
-예상 변경 파일:
-
-- `tools/try_board.py`
-- `tests/test_try_board.py`
-- `README.md`
-- `README_KOR.md`
+- 지금은 사용자가 준 보드 이름으로 항상 같은 경로를 만들고, 만들기 전에 그
+  경로를 통째로 지운다. 이 두 동작을 없앤다.
+- 대신 실행할 때마다 `tempfile.mkdtemp()`로 새 임시 폴더를 만든다. 이름이 매번
+  달라지므로 기존 폴더와 겹칠 일이 없다.
+- 끝나면 자동으로 지우고, `--keep`을 준 경우에만 남긴다.
+- `argparse`로 모르는 옵션과 이상한 보드 이름(`..`, `/` 같은 경로 문자)을
+  실행 전에 거부한다.
 
 ### Why
 
-현재 구현은 사용자 입력으로 만든 경로를 무조건 삭제하므로 테스트 도구가 temp
-root 밖의 기존 데이터를 제거할 수 있다. 다른 개선보다 먼저 제거해야 하는 안전
-문제다.
+`try_board.py NUCLEO-F411RE`를 치면 그 이름으로 폴더 경로를 만들고 **먼저
+지웠다.** 이름을 잘못 주면 임시 폴더가 아니라 실제 폴더가 지워진다. 실제로 한 번
+겪은 사고이고, 다른 어떤 개선보다 먼저 막아야 했다.
 
 ### Verification
 
-Self-verification:
-
 ```sh
 python3 -m unittest tests.test_try_board
-python3 tools/setup.py --self-test
 python3 tools/try_board.py NUCLEO-G071RB --keep
 git status --short
 ```
 
-검증 항목:
-
-- `..`, `/`, path separator가 들어간 입력이 실행 전에 거부됨
-- 같은 BOARD 테스트를 병렬 실행해도 서로 다른 directory 사용
-- 기존 directory를 준비해도 삭제하지 않음
-- `--keep`이 없으면 정리되고, 있으면 출력된 위치가 남음
-- 원본 working tree에 변경이 없음
-
-On-chip verification: 필요 없음.
+보드 없이 확인 가능하다.
 
 ### Progress
 
@@ -243,47 +185,41 @@ On-chip verification: 필요 없음.
 - [x] Self-verified
 - [x] Reported
 - [x] Chip-verified / N/A confirmed
-- [ ] Committed by user
+- [x] Committed by user
 
-## Stage 2 — 타깃 설정의 단일 source of truth
+## Stage 2 — 칩 바꾸기를 명령 한 번으로
 
 우선순위: P0
 
+**한 줄 요약**: 칩을 바꿀 때 손으로 맞춰야 할 값이 없어진다.
+
 ### What
 
-- 사용자 입력과 MCU/processor 파생값을 분리한다.
-- `config.cmake`에는 BOARD/MCU와 project 공통 정책 같은 사용자 의도만 둔다.
-- FAMILY, physical memory와 Pack provenance는 `generated/device.cmake`에 기록하고,
-  CPU_FLAGS, core define, startup 같은 실행 속성은 이후 image별 generated config로
-  분리할 수 있는 구조로 둔다.
-- `setup.py target --board <name>`과 `setup.py target --mcu <part>` 중 하나로
-  retarget을 원자적으로 수행한다.
-- 알려진 BOARD와 MCU가 다르면 실패한다.
-- 기존 파생값과 새 pack 결과가 다르면 조용히 유지하지 않고 diff를 출력한다.
-- 수동 override는 이름이 분명한 별도 변수로 제공한다.
-- 모든 검증과 network 조회가 성공한 뒤 임시 파일 + `os.replace()`로 기록한다.
-- target 변경 시 기존 family submodule, HAL config와 기존 image 설정의 처리 방법을
-  출력한다.
+- 설정을 두 파일로 나눈다.
+  - `config.cmake` — **사람이 정하는 것**. 어느 보드를 쓸지, RTOS를 쓸지.
+  - `generated/device.cmake` — **칩에서 따라오는 것**. Flash 주소와 크기, 코어
+    종류, 컴파일 플래그. 손으로 고치는 파일이 아니다.
+- 칩 변경은 명령 하나로 한다.
 
-예상 변경 파일:
+  ```sh
+  python3 tools/setup.py target --board NUCLEO-F411RE
+  python3 tools/setup.py target --mcu STM32G071RBTx
+  ```
 
-- `tools/setup.py`
-- `config.cmake`
-- `CMakeLists.txt`
-- `cmake/stm32.cmake`
-- `tests/test_target_config.py`
-- `README.md`
-- `README_KOR.md`
+- 이 명령은 **검증이 다 끝난 뒤에 한꺼번에** 파일을 쓴다. 중간에 네트워크가
+  끊기면 아무것도 바뀌지 않은 상태로 남는다.
+- 보드와 MCU가 서로 안 맞으면 파일을 쓰기 전에 실패한다.
+- 두 파일의 보드/MCU가 어긋나 있으면 CMake가 빌드를 시작하지 않는다.
+- `try_board.py`가 라이브러리를 받기 전에 필요한 도구부터 확인하고, PATH에 없는
+  Arm 툴체인을 찾아 하위 프로세스에 넘긴다.
 
 ### Why
 
-현재는 MCU만 변경하고 파생 필드를 비우지 않으면 이전 FAMILY, CPU flags, memory,
-device define을 그대로 사용할 수 있다. 잘못된 타깃 firmware를 정상 build로
-오인할 수 있으므로 가장 중요한 correctness 개선이다.
+전에는 `MCU`만 바꾸고 나머지를 비우지 않으면 이전 칩의 FAMILY, 컴파일 플래그,
+메모리 주소가 그대로 남았다. **F411용이라고 생각하고 만든 펌웨어가 사실은 H7
+설정으로 빌드되는데, 빌드는 성공한다.** 이걸 못 잡으면 나머지 개선은 의미가 없다.
 
 ### Verification
-
-Self-verification:
 
 ```sh
 python3 -m unittest tests.test_target_config
@@ -291,109 +227,132 @@ python3 tools/setup.py --self-test
 python3 tools/try_board.py NUCLEO-G071RB
 python3 tools/try_board.py NUCLEO-F411RE
 python3 tools/try_board.py CoreH743I
-git diff --check
 ```
 
-검증 항목:
-
-- H743 → F411 → G071 순서로 변경해도 이전 family 값이 남지 않음
-- BOARD/MCU 불일치가 file write와 submodule 작업 전에 실패
-- network/git 실패를 주입해도 config가 부분 변경되지 않음
-- 동일 target 재실행 결과가 byte-for-byte 동일
-- device 및 processor 파생값의 provenance가 확인 가능
-
-On-chip verification:
-
-지원되는 실제 보드 중 최소 한 대에서 수행한다. NUCLEO-F411RE 예:
-
-```sh
-python3 tools/setup.py target --board NUCLEO-F411RE
-cmake --preset default
-cmake --build --preset default
-cmake --build --preset flash
-```
-
-115200 8N1 terminal에서 다음을 확인하고 전체 log를 보관한다.
-
-```text
-Hello, World!
-board  NUCLEO-F411RE (STM32F411RETx)
-tick: 1
-tick: 2
-```
+실제 확인(2026-08-19): CoreH743I/STM32H743IITx에 플래시한 뒤 UART로 64 MHz
+system/PCLK1, 끊기지 않는 FreeRTOS tick, 4,624 byte로 안정된 free heap 확인.
 
 ### Progress
 
-- [ ] Implemented
-- [ ] Self-verified
-- [ ] Reported
-- [ ] Chip-verified / N/A confirmed
-- [ ] Committed by user
+- [x] Implemented
+- [x] Self-verified
+- [x] Reported
+- [x] Chip-verified / N/A confirmed
+- [x] Committed by user
 
-## Stage 3 — MCU topology/capability와 입력 검증
+## Stage 3 — 빈 상태로 출하, 한 번만 실행, 못 쓰는 칩 거부
 
 우선순위: P0
 
-### What
+**한 줄 요약**: 새 프로젝트는 빈 설정으로 시작하고, `setup.py`는 첫 설정 한 번만
+돌며, 지원하지 않는 칩은 파일을 바꾸기 전에 막힌다.
 
-- CMSIS-Pack의 모든 processor record를 이름, core, FPU/DSP, endian, memory context와
-  함께 보존한다. 반복 record를 하나의 전역 변수로 덮어쓰지 않는다.
-- processor가 하나면 기존 single-image 기본 context로 선택한다.
-- processor가 여러 개면 장치 전체를 unsupported로 판정하지 않고 multi-core
-  topology로 분류한다. image가 core context를 지정하지 않은 경우에만 모호성 오류로
-  실패한다.
-- internal Flash가 없는 target을 조기에 거부한다.
-- SMP/AMP 여부를 Pack 정보만으로 단정하지 않고 family adapter metadata로 확정한다.
-- TrustZone capability, HAL2, 지원하지 않는 core/family를 서로 다른 capability 상태로
-  구분한다.
-- 실제 part suffix를 고려해 PDSC part pattern과 입력 part number를 비교한다.
-  예: `STM32U575ZIT6Q`.
-- `RAM_REGION`은 RAM 후보에 포함된 이름만 허용한다.
-- Flash/RAM size, origin, alignment와 CPU/FPU 조합을 검증한다.
-- F1처럼 공통 console HAL 모델과 다른 family는 adapter를 구현하기 전까지 거부한다.
-- README에 verified / expected / unsupported 표를 둔다.
+### What 1: 빈 상태로 출하
 
-예상 변경 파일:
+- `config.cmake`에서 **칩과 보드에 딸린 값을 비운 채로** 출하한다.
+  `BOARD`, `MCU`, `CONSOLE_UART`/`TX`/`RX`/`AF`, `HSE_HZ`, `RAM_REGION`.
+- 칩과 상관없는 값은 그대로 둔다. `RTOS`, `FREERTOS_HEAP_KB`, `CONSOLE_BAUD`,
+  `ARM_TOOLCHAIN_BIN`.
+- `generated/device.cmake`는 아예 커밋하지 않는다. 첫 설정이 만든다.
+- 값이 비었을 때 나올 메시지는 이미 다 있으니 새로 만들지 않는다. CMake는
+  `generated/device.cmake is missing`, `setup.py`는 `target is not configured`.
+
+### What 2: 한 번만 실행
+
+- 명령을 하나로 합친다. `target` 서브명령을 없앤다.
+
+  ```sh
+  python3 tools/setup.py --board NUCLEO-F411RE
+  python3 tools/setup.py --mcu STM32F411RETx
+  ```
+
+  경로는 Stage 5에서 `template/setup.py`로 바뀐다.
+
+- **이미 설정되어 있으면 거부한다.**
+
+  ```text
+  이미 STM32H743IITx로 설정되어 있습니다.
+  다른 칩이나 보드는 새 프로젝트로 시작하세요.
+  이 프로젝트에서 바꿔야 한다면 config.cmake와 generated/device.cmake를
+  직접 고치세요.
+  ```
+
+- 한 번만 도니까 "지금 어떤 상태인가"를 판단하는 코드가 전부 필요 없어진다.
+  다음을 지운다.
+  - `cmd_init` — 인자 없는 실행. 설정 명령과 하는 일이 겹친다
+  - `configured_target` — 설정 후 다시 읽을 일이 없다
+  - `print_device_diff` — 비교할 이전 값이 없다
+  - `write_target_files`의 롤백 — 실패하면 폴더를 지우고 다시 시작한다
+- 설정 도중 꼬이면 폴더를 지우고 템플릿에서 다시 받는다. 그 시점에는 아직
+  사용자 코드가 없다.
+- 코드를 쓴 뒤에 보드를 바꿔야 하면 두 파일을 직접 고친다. 같은 칩이면
+  `generated/device.cmake`는 손댈 필요가 없고, `config.cmake`의 `BOARD`,
+  `CONSOLE_*`, `HSE_HZ`만 바꾸면 된다.
+
+### What 3: 못 쓰는 칩은 미리 거부
+
+- CMSIS-Pack에 프로세서가 둘 이상 적혀 있으면 멀티코어로 보고 바로 실패한다.
+  코어를 임의로 고르지 않는다.
+- 내장 Flash가 없으면 실패한다. Flash가 있어도 부트로더 크기밖에 안 되면
+  (STM32H7S3의 64 KB) 같은 이유로 실패한다.
+- 아는 코어 목록에 없으면 Cortex-A까지 포함해 이유를 말하고 실패한다.
+- `RAM_REGION`에는 RAM 이름만 받는다. 지금은 FLASH 이름도 통과한다.
+- 품번 끝의 등급 문자를 감안해 Pack의 표기와 맞춰본다.
+  예: `STM32U575ZIT6Q`, `STM32C031C(4-6)Tx`.
+- **모든 거부는 파일을 하나도 바꾸기 전에** 일어나고, 이유를 한 문장으로 말하며
+  `docs/unsupported-mcu.md`를 가리킨다.
+
+### 예상 변경 파일
 
 - `tools/setup.py`
+- `config.cmake`
+- `generated/device.cmake` (템플릿에서 삭제)
 - `tests/fixtures/pdsc/*`
 - `tests/test_pack_parser.py`
+- `docs/unsupported-mcu.md`
 - `README.md`
 - `README_KOR.md`
 
 ### Why
 
-현재 H745는 여러 processor 중 마지막 M4로 전역 CPU 설정을 덮어쓴다. dual-core라서
-실패해야 하는 것이 아니라 topology 정보를 잃고 잘못된 core/memory 조합을 만드는
-것이 문제다. N657은 linker 구성 도중에야 실패한다. 두 경우 모두 config와 submodule을
-일부 변경하기 전에 정확한 capability 결과를 내야 한다.
+**빈 출하**: CoreH743I로 출하하는 이유는 "받자마자 빌드된다"였는데 사실이 아니다.
+H7 라이브러리가 템플릿에 없어 어차피 `setup.py`를 돌려야 한다. 이득은 없고 위험만
+남는다. `PH13`/`PH14`, `AF8`, `HSE_HZ 8000000`은 CoreH743I의 배선값이라, 다른 보드
+사용자가 지우지 않으면 **빌드는 성공하고 UART만 죽는다.**
+
+**한 번만 실행**: 칩이 바뀌면 다른 프로젝트이고, 보드가 바뀌어도 다른
+프로젝트다. 템플릿은 시작점이지 사용자 프로젝트의 관리 도구가 아니다. 여러 번
+실행된다고 가정하는 순간 이전 상태를 지울지, 사용자 수정을 백업할지, 실패 시
+어디까지 되돌릴지를 전부 정해야 한다. 한 번만 돈다고 정하면 그 전부가 없어진다.
+
+**거부**: 실패하는 자리가 문제다. H745는 프로세서 여러 개 중 마지막 M4로 설정을
+덮어쓰고, N657은 링커 스크립트를 만드는 도중에야 실패한다. 둘 다 저장소를 일부
+바꿔놓은 뒤에 깨진다.
 
 ### Verification
-
-Self-verification:
 
 ```sh
 python3 -m unittest tests.test_pack_parser
 python3 tools/setup.py --self-test
+python3 tools/try_board.py NUCLEO-G071RB
+python3 tools/try_board.py CoreH743I
 ```
 
-fixture matrix:
+테스트용 Pack 표본:
 
-- positive: H743, F411, G071, U575
-- topology positive: H745가 `CM7`과 `CM4` 두 processor context로 파싱됨
-- ambiguity negative: H745에서 image core를 지정하지 않으면 명확한 오류
-- unsupported negative: N657 flashless, HAL2 target
-- normalization: `STM32U575ZIT6`, `STM32U575ZIT6Q`
-- invalid: Flash를 `RAM_REGION`으로 지정, 잘못된 CPU/FPU 조합
+- 성공해야 하는 것: H743, F411, G071, U575
+- 실패해야 하는 것: H745(멀티코어), WL55(멀티코어), N657(Flash 없음),
+  H7S3(부트 Flash만)
+- 실패해야 하는 것: `RAM_REGION`에 FLASH 이름을 넣은 경우
+- 같게 해석되어야 하는 것: `STM32U575ZIT6`, `STM32U575ZIT6Q`
 
-모든 negative case는 다음을 만족해야 한다.
+확인할 항목:
 
-- network clone 또는 file write 전에 실패
-- 원인을 설명하는 안정된 error code/message 제공
-- working tree와 config가 unchanged
+- 빈 설정에서 `cmake --preset default`가 알아들을 수 있는 메시지로 실패한다
+- 빈 설정에서 첫 실행이 성공하고, 같은 명령을 다시 돌리면 거부한다
+- 실패 케이스가 라이브러리를 받기 전, 파일을 쓰기 전에 실패하고 작업 폴더가 그대로다
 
-On-chip verification: 필요 없음. 이 단계는 topology를 보존하고 모호한 선택을
-거부하는 host-side parser 계약만 확정한다. 실제 H745 실행은 Stage 8에서 검증한다.
+보드 없이 확인 가능하다.
 
 ### Progress
 
@@ -403,63 +362,79 @@ On-chip verification: 필요 없음. 이 단계는 topology를 보존하고 모�
 - [ ] Chip-verified / N/A confirmed
 - [ ] Committed by user
 
-## Stage 4 — Cube 경계와 library 연결 정리
+## Stage 4 — 안 쓰는 명령을 지우고, 라이브러리 목록을 문서로 남기기
 
 우선순위: P1
 
+**한 줄 요약**: `add` 명령을 없애는 대신, 첫 설정 때 그 패밀리가 쓸 수 있는 ST
+라이브러리 목록을 `docs/`에 만들어 둔다.
+
 ### What
 
-- `setup.py add cube`와 양 언어 README의 사용 예제를 제거한다.
-- `.ioc.bak`, `.mxproject` 같은 CubeMX 전용 ignore는 형제 템플릿으로 이동한다.
-- `/Debug/`, `/Release/` ignore가 필요하면 root에만 적용한다.
-- 현재 템플릿이 `.ioc`를 사용하지 않는다는 점과 형제 CubeMX 템플릿 선택 기준을
-  README 첫 부분에 짧게 표시한다.
-- 현재 템플릿의 `.vscode/extensions.json`에는 전체 ST extension pack을 기본 추천으로
-  추가하지 않는다. 형제 CubeMX 템플릿에서만 optional 도구로 설명한다.
-- 임의 repository의 모든 `.c`를 재귀 glob하는 library 연결을 제거한다.
-- 외부 library는 다음 중 하나로만 연결한다.
-  - library가 제공하는 `CMakeLists.txt`를 `add_subdirectory()`로 연결
-  - project가 source/include 목록을 명시한 manifest 또는 CMake target 제공
-- clone/download와 build 연결을 별도 동작으로 분리한다.
+- `setup.py add`를 통째로 지운다. `add cube`도 함께 사라진다.
+- 첫 설정 때 `docs/libraries-<fam>.md`를 만든다.
+  - 출처는 `STM32Cube<FAM>` 저장소의 `.gitmodules` 파일 하나다. F4 기준 9 KB에
+    항목 56개가 들어 있다. 저장소 본체(790 MB)는 받지 않는다.
+  - 경로 앞부분으로 세 그룹으로 나눈다. F4 기준 미들웨어 7개, 보드 BSP 13개,
+    부품 드라이버 34개. 이미 받은 CMSIS와 HAL 두 개는 뺀다.
+  - 문서 첫머리에 추가 방법을 적는다.
 
-예상 변경 파일:
+    ```sh
+    git submodule add <URL> lib/<이름>
+    # config.cmake의 EXTRA_LIB_DIRS에 "lib/<이름>" 추가
+    ```
+
+  - `EXTRA_LIB_DIRS`가 하위 `*.c`를 전부 컴파일하고 `Inc/`나 `Include/`를 include
+    경로에 붙인다는 것, 예제가 섞인 저장소를 통째로 넣으면 중복 심볼이 난다는
+    것을 한 줄씩 적는다.
+  - 생성 날짜와 출처 URL을 적어 이 목록이 스냅샷임을 밝힌다.
+  - `.gitmodules`를 못 받으면 문서를 만들지 않고 넘어간다. 빌드에 필요한 것이
+    아니므로 첫 설정을 실패시키지 않는다. 대신 출처 URL을 한 줄 출력한다.
+- `.gitignore`에서 `*.ioc.bak`, `.mxproject`를 지운다. `/Debug/`, `/Release/`가
+  필요하면 최상위에만 적용한다.
+- 원칙 3(라이브러리는 통째로 쓴다)을 README와 `cmake/stm32.cmake` 주석에 적는다.
+- `EXTRA_LIB_DIRS`가 하위 `.c`를 전부 모으는 방식은 **그대로 둔다.** manifest나
+  CMake target을 요구하도록 바꾸면 설정이 늘고 얻는 것이 없다.
+
+### 예상 변경 파일
 
 - `tools/setup.py`
 - `cmake/stm32.cmake`
 - `config.cmake`
 - `.gitignore`
+- `docs/libraries-<fam>.md` (생성물)
 - `README.md`
 - `README_KOR.md`
-- library fixture tests
 
 ### Why
 
-전체 STM32Cube repository와 임의 library tree를 재귀 컴파일하면 example `main`,
-HAL, startup, middleware가 중복된다. ST extension을 설치해도 이 source ownership
-충돌이 해결되지는 않는다. CubeMX 분리 결정과도 맞지 않고, 현재 기능을 정상적인
-library manager로 오해하게 만든다.
+`add`는 개발 중에 쓰는 명령인데, 그때 `setup.py`는 이미 지워지고 없다. 남겨도 못
+쓴다. 반대로 문서는 프로젝트에 남는다. 그게 원래 문제였다.
+
+그리고 라이브러리를 붙이는 일 자체는 `git submodule add` 한 줄과 `config.cmake`
+한 줄이다. 자동화할 만한 일이 아니다. 정말 없어서 곤란한 것은 **어떤 라이브러리가
+있고 URL이 무엇인지**이고, 그건 문서가 답한다.
+
+`add cube`는 특히 나쁘다. 790 MB짜리 껍데기 저장소를 받아 하위 `.c`를 전부
+컴파일하는데, 정작 사람이 원하는 목록은 그 안의 9 KB 파일 하나다.
 
 ### Verification
 
-Self-verification:
-
 ```sh
-python3 -m unittest tests.test_library_integration
 python3 tools/setup.py --help
 python3 tools/try_board.py NUCLEO-G071RB
-rg -n "add cube|EXTRA_LIB_DIRS|\.ioc|\.mxproject" .
+rg -n "add cube|mxproject" .
 ```
 
-검증 항목:
+확인할 항목:
 
-- `add cube`가 더 이상 지원 명령으로 노출되지 않음
-- 현재 템플릿의 기본 extension recommendation에 ST extension pack이 없음
-- 임의 repository clone만으로 source가 자동 추가되지 않음
-- CMake target을 제공하는 fixture library 연결 성공
-- 명시적 raw-source fixture 연결 성공
-- 기존 대표 target build 통과
+- `add`가 명령 목록에 없다
+- 첫 설정 후 `docs/libraries-g0.md`가 생기고, 표의 URL이 실제로 열린다
+- `.gitmodules`를 못 받는 상황을 만들어도 첫 설정이 성공한다
+- 지우기로 한 ignore 항목이 남아 있지 않다
+- 대표 보드 빌드가 그대로 통과한다
 
-On-chip verification: 필요 없음.
+보드 없이 확인 가능하다.
 
 ### Progress
 
@@ -469,399 +444,123 @@ On-chip verification: 필요 없음.
 - [ ] Chip-verified / N/A confirmed
 - [ ] Committed by user
 
-## Stage 5 — dependency lock과 CI 기준선
+## Stage 5 — 새 칩 추가 절차와 템플릿 전용 파일 격리
 
 우선순위: P1
 
-### What
-
-- dependency lock manifest를 추가한다.
-- lock에 CMSIS-Core, CMSIS-device, HAL, FreeRTOS commit과 PDSC version/hash,
-  toolchain version을 기록한다.
-- `setup.py --frozen`은 lock과 다른 dependency를 받거나 갱신하지 않는다.
-- 기존 submodule path가 expected origin/gitlink인지 검증한다.
-- 개인 toolchain 경로는 tracked config에 기록하지 않고 환경 변수 또는 ignored
-  `CMakeUserPresets.json`으로 이동한다.
-- offline unit test와 online integration test를 분리한다.
-- PR CI에 self-test, unit test, format/static check, representative single-image build
-  matrix를 둔다.
-- scheduled CI에서 live pack/pin-data/upstream 호환성을 확인한다.
-
-최소 build/test matrix:
-
-- H743 + FreeRTOS
-- F411 + FreeRTOS
-- G071 + FreeRTOS
-- G071 + `RTOS=none`
-- H745 `CM7`/`CM4` topology parser 검사
-- H745 core 미지정 ambiguity와 N657 flashless expected-failure 검사
-
-예상 변경 파일:
-
-- dependency lock file
-- `tools/setup.py`
-- `.gitignore`
-- `.github/workflows/*`
-- `tests/*`
-- `README.md`
-- `README_KOR.md`
-
-### Why
-
-현재 최초 생성 시점의 default branch HEAD와 최신 PDSC를 사용하므로 같은 template
-commit도 날짜에 따라 다른 dependency와 설정을 얻을 수 있다. 이후 image-target
-CMake와 multi-image를 추가하려면 먼저 기존 single-image 동작을 자동으로 비교할
-기준선이 필요하다.
-
-### Verification
-
-Self-verification:
-
-```sh
-python3 -m unittest discover -s tests -p 'test_*.py'
-python3 tools/setup.py --self-test
-python3 tools/setup.py --frozen --dry-run
-python3 tools/try_board.py NUCLEO-G071RB
-python3 tools/try_board.py NUCLEO-F411RE
-python3 tools/try_board.py CoreH743I
-```
-
-CI 검증:
-
-- clean clone에서 모든 PR job 통과
-- network를 차단한 `--frozen` build 통과
-- lock의 commit/hash를 변경하면 검증 실패
-- H745 topology는 두 processor를 보존하고 core 미지정만 정해진 오류로 실패
-- Windows/macOS/Linux self-test 결과 보관
-
-On-chip verification: 필요 없음. CI는 Stage 2에서 승인된 hardware 결과를 대체하지
-않는다.
-
-### Progress
-
-- [ ] Implemented
-- [ ] Self-verified
-- [ ] Reported
-- [ ] Chip-verified / N/A confirmed
-- [ ] Committed by user
-
-## Stage 6 — image-target CMake 기반
-
-우선순위: P1
-
-### What
-
-- 현재 전역 `add_executable()` 구성을 `stm32_add_image()` 같은 CMake 함수로 감싼다.
-- 첫 단계에서는 image 한 개만 허용하고 기존 application을 `application` image로
-  그대로 옮긴다.
-- image target이 processor context, core define, CPU flags, startup, linker layout,
-  source/include/library와 output name을 소유하게 한다.
-- physical device 정보와 image 실행 정보를 분리한다.
-- image별 generated config와 artifact directory를 만들되 기존 기본 target 이름과
-  명령에는 호환 alias를 제공한다.
-- HAL/CMSIS 공통 source는 공유할 수 있지만 core-specific compile option은 image
-  target 밖의 전역 option으로 누출하지 않는다.
-- `PROJECT_NAME`과 CMake target name을 분리해 여러 executable을 선언할 수 있게 한다.
-
-개념 API:
-
-```cmake
-stm32_add_image(
-    NAME application
-    CORE AUTO
-    STARTUP AUTO
-    FLASH_REGION AUTO
-    RAM_REGION AUTO
-    SOURCES ${APP_SOURCES}
-)
-```
-
-예상 변경 파일:
-
-- `CMakeLists.txt`
-- `cmake/stm32.cmake`
-- `cmake/stm32_flash.ld.in`
-- `config.cmake`
-- `tools/setup.py`
-- `tests/test_image_target.py`
-- README 양 언어
-
-### Why
-
-multi-image와 STM32H7 dual-core를 바로 조건문으로 덧붙이면 전역 CPU flags, startup,
-linker state가 다시 섞인다. 기존 single-image를 먼저 image target 하나로 표현하고
-출력 동등성을 확인해야 이후 복수 image가 단순한 target 추가가 된다.
-
-### Verification
-
-Self-verification:
-
-```sh
-python3 -m unittest tests.test_image_target
-python3 tools/try_board.py NUCLEO-G071RB
-python3 tools/try_board.py NUCLEO-F411RE
-python3 tools/try_board.py CoreH743I
-cmake --build --preset default --target application
-```
-
-검증 항목:
-
-- 한 configure에 application executable이 정확히 하나 생성됨
-- 기존과 새 build의 vector address, entry symbol, CPU attributes와 주요 section이 일치
-- image target 밖에서 `CPU_FLAGS`, startup, linker script가 전역 적용되지 않음
-- 두 번째 image 선언은 아직 지원되지 않는다는 명확한 configure 오류
-- 기존 `cmake --build --preset default` 사용법 유지
-
-On-chip verification:
-
-Stage 2에서 검증한 single-core 보드에 `application` image를 flash한다.
-
-- reset 후 UART `Hello, World!`와 `tick` 확인
-- debugger가 `application.elf`의 `main`에서 정지
-- 변경 전 승인된 serial/debug 결과와 동작이 같음
-
-### Progress
-
-- [ ] Implemented
-- [ ] Self-verified
-- [ ] Reported
-- [ ] Chip-verified / N/A confirmed
-- [ ] Committed by user
-
-## Stage 7 — bootloader/application multi-image
-
-우선순위: P1
-
-### What
-
-- 한 configure에서 같은 processor context를 사용하는 image 여러 개를 허용한다.
-- bootloader와 application이 physical Flash를 각자의 slot으로 나누어 사용하게 한다.
-- 각 image가 Flash origin/size, RAM origin/size, vector alignment와 entry point를
-  독립적으로 가진다.
-- 모든 image와 reserved region의 범위 및 overlap을 configure 단계에서 검사한다.
-- application의 VTOR 설정 주체와 bootloader jump 절차를 명시적 계약으로 고정한다.
-- bootloader와 application을 각각 build/flash할 수 있게 한다.
-- single-image 설정에는 추가 slot 선언을 요구하지 않는다.
-- bootloader jump용 on-target fixture를 별도 test asset으로 둔다.
-
-예상 변경 파일:
-
-- `config.cmake`
-- `cmake/stm32.cmake`
-- `cmake/stm32_flash.ld.in`
-- `tools/setup.py`
-- `tests/test_flash_layout.py`
-- `tests/on_target/bootloader/*`
-- README 양 언어
-
-### Why
-
-bootloader/application은 서로 다른 core adapter 없이 multi-image layout과 image별
-linking을 검증할 수 있는 가장 단순한 첫 소비자다. 현재 offset 기능은 Flash origin만
-옮기고 전체 size를 유지하며 VTOR 계약도 없어 물리 Flash 끝을 넘을 수 있다.
-
-### Verification
-
-Self-verification:
-
-```sh
-python3 -m unittest tests.test_flash_layout
-cmake --preset default -DSTM32_LAYOUT=bootloader-app
-cmake --build --preset default --target bootloader application
-arm-none-eabi-objdump -h build/images/bootloader/bootloader.elf
-arm-none-eabi-objdump -h build/images/application/application.elf
-```
-
-검증 항목:
-
-- 각 `.isr_vector`가 선언한 slot origin에 배치됨
-- 두 image와 reserved region이 겹치지 않고 physical Flash 끝을 넘지 않음
-- 정렬되지 않거나 겹치거나 범위를 벗어난 layout은 configure 단계에서 실패
-- application vector address와 VTOR 계약이 일치
-- 같은 source symbol이 두 image에 존재해도 link namespace가 충돌하지 않음
-
-On-chip verification:
-
-Stage에서 제공하는 NUCLEO-F411RE bootloader fixture를 사용한다.
-
-```sh
-cmake --build --preset default --target flash-bootloader
-cmake --build --preset default --target flash-application
-```
-
-확인 항목:
-
-- reset 후 bootloader가 application으로 jump
-- UART에서 bootloader marker 뒤에 application `Hello, World!`와 `tick` 확인
-- debugger에서 application 실행 중 `SCB->VTOR`가 application origin과 일치
-- reset log, serial log, VTOR 값을 보고 자료로 보관
-
-### Progress
-
-- [ ] Implemented
-- [ ] Self-verified
-- [ ] Reported
-- [ ] Chip-verified / N/A confirmed
-- [ ] Committed by user
-
-## Stage 8 — STM32H7 heterogeneous dual-core
-
-우선순위: P1
-
-### What
-
-- STM32H745/H747/H755/H757 family adapter에서 Pack의 `CM7`과 `CM4` processor
-  context를 각각 image에 연결한다.
-- CM7과 CM4 image에 서로 다른 `-mcpu`, FPU option, `CORE_CM7`/`CORE_CM4`, startup,
-  vector table, linker layout과 HAL config를 적용한다.
-- `shared/` source는 물리적으로 한 번 관리하되 각 image context에서 별도로 컴파일한다.
-- core-local Flash/RAM, shared RAM과 reserved region을 구분하고 overlap을 검사한다.
-- shared-memory section과 HSEM/IPCC 같은 inter-core synchronization hook을 제공한다.
-- CM7 D-cache가 켜진 경우 shared memory를 non-cacheable로 두거나 cache maintenance를
-  요구하는 정책을 명시한다.
-- 어느 core가 먼저 부팅되는지 하드코딩하지 않고 device boot option과 board adapter가
-  선택한 boot/release/synchronization 정책을 manifest에 기록한다.
-- 한 core만 사용하는 구성도 허용하되 미사용 core 상태를 명시한다.
-
-예상 변경 파일:
-
-- `tools/setup.py`
-- `cmake/stm32.cmake`
-- H7 dual-core family/board adapter
-- `config.cmake` 또는 image config 예제
-- `tests/test_dual_core.py`
-- `tests/on_target/h745_dual_core/*`
-- README 양 언어
-
-### Why
-
-ESP32식 SMP는 동일한 두 코어가 하나의 application과 OS를 공유하지만 STM32H7
-dual-core는 Cortex-M7과 Cortex-M4가 독립적으로 부팅하고 링크되는 AMP다. 따라서
-task affinity option 하나로 처리할 수 없지만, 별도 템플릿도 필요 없다. Stage 6의
-image target 두 개에 core별 context와 inter-core 계약을 추가하면 된다.
-
-### Verification
-
-Self-verification:
-
-```sh
-python3 -m unittest tests.test_dual_core
-python3 tools/setup.py target --board NUCLEO-H745ZI-Q
-cmake --preset default
-cmake --build --preset default --target cm7 cm4
-arm-none-eabi-readelf -A build/images/cm7/cm7.elf
-arm-none-eabi-readelf -A build/images/cm4/cm4.elf
-```
-
-검증 항목:
-
-- CM7 ELF와 CM4 ELF의 CPU/FPU attributes, startup, vector와 define이 각각 정확함
-- 두 image의 Flash/RAM region이 겹치지 않으며 선언된 shared region만 공유됨
-- core 이름 누락, 중복 core 배정, 잘못된 startup/flags 조합은 configure 전에 실패
-- 공통 source가 각 core option으로 독립 컴파일됨
-- single-core H743/F411/G071 회귀 build가 계속 통과
-
-On-chip verification:
-
-NUCLEO-H745ZI-Q 또는 동등한 H745/H747 board에서 수행한다.
-
-```sh
-cmake --build --preset default --target flash-cm7
-cmake --build --preset default --target flash-cm4
-```
-
-reset 후 다음을 확인한다.
-
-- CM7과 CM4가 각각 고유 boot marker를 남김
-- HSEM 또는 선택한 IPC를 통해 shared counter/message를 왕복
-- 1000회 교환 동안 timeout/data mismatch가 없음
-- CM7 cache policy를 바꾼 negative fixture가 검증에서 탐지됨
-- 각 core를 독립 debug해 해당 ELF의 `main`에서 정지
-- serial log, IPC count, debugger console과 option-byte/boot-mode 정보를 보관
-
-### Progress
-
-- [ ] Implemented
-- [ ] Self-verified
-- [ ] Reported
-- [ ] Chip-verified / N/A confirmed
-- [ ] Committed by user
-
-## Stage 9 — multi-image artifact, flash, debug 일관성
-
-우선순위: P1
-
-### What
-
-- image별 `.elf`, `.bin`, `.hex`, `.map`을 CMake build graph의 output/byproduct로
-  등록한다.
-- `build-all`, `flash-<image>`, `flash-all` target을 제공하고 boot manifest의 순서와
-  reset 정책을 따른다.
-- 여러 HEX를 주소 보존 방식으로 결합한 `combined.hex`를 선택적으로 만들며 overlap이
-  있으면 실패한다. combined 파일은 배포 artifact일 뿐 image별 ELF를 대체하지 않는다.
-- flash target이 실제 artifact에 의존하고, clean이 모든 image 및 combined artifact를
-  제거하도록 한다.
-- image 목록, 주소, hash, core, ELF path와 flash 순서를 machine-readable manifest로
-  출력한다.
-- VS Code task/launch를 manifest에서 생성하거나 해석해 image 하나 또는 dual-core
-  compound debug를 선택할 수 있게 한다.
-- 기존 single-image `build`, `flash`, F5 경로는 application image의 호환 alias로 둔다.
-- custom command에 `VERBATIM`을 적용하고 Debug/Release/MinSizeRel preset을 제공한다.
-
-예상 변경 파일:
-
-- `CMakeLists.txt`
-- `cmake/stm32.cmake`
-- `CMakePresets.json`
-- `.vscode/tasks.json`
-- `.vscode/launch.json`
-- artifact/manifest merge tool
-- artifact tests
-
-### Why
-
-복수 image를 build하는 것과 최종 파일 하나를 배포하는 것은 다른 문제다. CMake가
-image별 ELF를 유지하면서 combined HEX와 순서 있는 flash/debug를 조정해야 한다.
-현재 single-image에서도 clean 후 `.bin`, `.hex`, `.map`이 남고 VS Code 경로가
-하드코딩되어 있으므로 함께 바로잡는다.
-
-### Verification
-
-Self-verification:
-
-```sh
-python3 -m unittest tests.test_artifacts tests.test_image_manifest
-cmake --preset default -DSTM32_LAYOUT=bootloader-app
-cmake --build --preset default --target build-all
-cmake --build --preset default --target clean
-cmake --build --preset default --target flash-all -- -n
-```
-
-검증 항목:
-
-- clean 후 모든 image의 `.elf/.bin/.hex/.map`과 combined artifact 제거
-- artifact 하나만 삭제해도 flash dependency가 해당 생성 command를 다시 실행
-- combined HEX를 다시 분리해 각 image HEX와 byte/address가 동일
-- overlap fixture는 combined artifact 생성 전에 실패
-- project rename 후 VS Code 설정을 수동 수정하지 않아도 manifest의 ELF를 사용
-- space가 포함된 throwaway workspace와 fresh VS Code flash task 성공
-
-On-chip verification:
-
-single-core board와 Stage 8의 H745 board에서 각각 수행한다.
+**한 줄 요약**: 새 보드 추가 방법을 문서 한 곳에 모으고, 템플릿에서만 쓰는 것을
+`template/` 한 폴더로 격리해 프로젝트가 폴더 하나만 지우면 되게 한다.
+
+### What 1: 새 보드 추가 절차
+
+- README 양 언어에 절차를 둔다.
+  1. `setup.py pins`로 콘솔 UART와 핀, AF 번호 확인
+  2. `setup.py`의 `BOARDS`에 한 줄 추가
+  3. `try_board.py <BOARD>`로 빌드 확인
+  4. 보드가 있으면 `--flash`로 UART 출력 확인
+- 검증된 보드 표를 둔다. 실제로 확인한 것만 적고 "될 것 같은 것" 등급은 두지
+  않는다.
+- 지원하지 않는 조합이 어떤 메시지로 실패하는지 한 문단 적고
+  `docs/unsupported-mcu.md`를 링크한다. 링크는 양 언어에 둔다.
+- 새 제외 사례를 찾으면 `docs/unsupported-mcu.md`에 근거와 함께 추가한다.
+- Quick Start를 첫 설정 명령 하나 중심으로 줄여 첫 빌드까지 5분 안에 끝나게 한다.
+- "수정할 유일한 파일"이라는 표현을 "하드웨어 빌드 설정의 기준 파일"로 고친다.
+- README의 `CoreH743I`를 출하 상태가 아니라 예시로 다시 쓴다. 양 언어 모두.
+
+### What 2: 템플릿 전용 파일 격리
+
+템플릿에서만 쓰는 것을 한 폴더로 모은다.
 
 ```text
-VS Code → Run Task → flash-all
-VS Code → Run and Debug → image 선택 또는 dual-core compound
+template/
+├── README.md            유지보수 규칙 (지금 CLAUDE.md 내용)
+├── improvement-plan.md  이 문서
+├── setup.py             tools/에서 이동. 첫 설정 한 번만 쓴다
+├── try_board.py         tools/에서 이동
+└── tests/               최상위 tests/에서 이동
+
+docs/unsupported-mcu.md  프로젝트에서도 보므로 남김
+docs/libraries-<fam>.md  첫 설정이 만든 것. 프로젝트가 가진다
 ```
 
-확인 항목:
+`tools/` 폴더가 사라진다. `setup.py`는 첫 설정을 마치면 할 일이 없으므로
+`template/`과 함께 지워진다.
 
-- single-image는 기존과 동일한 한 번의 flash/debug 경로 제공
-- H745 `flash-all`이 manifest 순서대로 두 image를 program하고 reset
-- compound debug에서 CM7/CM4가 각자의 ELF source와 symbol을 사용
-- combined HEX 단독 program 후에도 개별 flash와 같은 UART/IPC 결과
-- task log, debugger console, programmed address 목록을 보관
+- 첫 프로젝트 체크리스트의 삭제 안내를 한 줄로 줄인다: `template/` 폴더 삭제.
+- 최상위 `tests/`와 `tools/`를 비워, 프로젝트가 두 이름을 자기 것으로 쓸 수 있게
+  한다. 둘 다 펌웨어 프로젝트가 흔히 만드는 폴더 이름이다.
+- **`doctor`를 통째로 지운다** (191줄). 툴체인 탐색, newlib 검사,
+  `.vscode/settings.json` 자동 수정이 전부 사라진다.
+  - 빌드는 `doctor` 없이도 명확히 실패한다. `cmake/arm-none-eabi.cmake`가
+    `find_program(... REQUIRED)`로 툴체인을 찾고, 없으면 configure가 멈춘다.
+  - Windows 설치 경로에 괄호가 있어 `config.cmake`에 넣을 수 없다는 주의사항은
+    이미 `config.cmake` 주석에 적혀 있다.
+  - 팀원 온보딩 점검은 그 팀의 OS와 CI를 아는 프로젝트의 몫이다. 템플릿은 모른다.
+  - `.vscode/settings.json`의 `cortex-debug.armToolchainPath`는 주석 처리된
+    예시로 남고, 필요한 사람이 주석을 푼다.
+  - `try_board.py`가 쓰던 `find_toolchain()`을 자기 안으로 옮긴다. 25줄쯤이고
+    `template/` 안이라 프로젝트에는 영향이 없다.
+  - `self_test`에서 `TOOLS`, `TOOLCHAIN_GLOBS`, `set_vscode_toolchain` 관련
+    검사를 지운다.
+- `setup.py`와 `try_board.py`는 같은 폴더에 남으므로 import 방식은 그대로 둔다.
+- `template/__init__.py`와 `template/tests/__init__.py`를 두어
+  `python3 -m unittest template.tests.<이름>` 형태를 유지한다.
+- Stage 1에서 3까지 만든 테스트 파일도 함께 옮기고, 앞 Stage의 검증 명령 경로를
+  이 문서와 README에서 갱신한다.
+- `CLAUDE.md`는 커밋하지 않는다. `.gitignore`에 넣고 내용은 `template/README.md`로
+  옮긴다. 유지자는 clone 후 한 줄로 되살린다.
+
+  ```sh
+  echo "@template/README.md" > CLAUDE.md
+  ```
+
+  이러면 생성된 프로젝트에는 `CLAUDE.md`가 아예 없다. 그 프로젝트 담당자가 자기
+  내용으로 처음부터 쓰면 된다.
+- `.github/workflows`는 위치가 고정이라 옮길 수 없다. Stage 7의 저장소 조건이
+  그 역할을 대신한다.
+
+### 예상 변경 파일
+
+- `README.md`
+- `README_KOR.md`
+- `.gitignore`
+- `CLAUDE.md` (커밋 해제, 내용은 `template/README.md`로 이동)
+- `template/*` (`tools/*`, `tests/*`, 이 문서를 이동)
+- `docs/unsupported-mcu.md`
+- `config.cmake` (주석)
+
+### Why
+
+다른 STM32를 쉽게 쓸 수 있어야 한다는 것이 이 템플릿의 목적인데, 지금은 그 절차가
+문서 여러 곳에 흩어져 있고 Quick Start와 상세 절차가 서로 다르다.
+
+템플릿 전용 파일도 같은 문제다. 지울 것이 여러 군데로 흩어져 있으면 체크리스트가
+그만큼 길어지고, **긴 체크리스트는 지켜지지 않는다.** 한 폴더면 한 줄이다.
+`tests/`와 `tools/`는 특히 급하다. 펌웨어 프로젝트가 흔히 만드는 두 이름을
+템플릿이 차지하고 있기 때문이다.
+
+`doctor`는 다른 이유로 지운다. 이 템플릿은 그 프로젝트의 팀도, OS도, CI도
+모른다. 호스트 점검 도구는 그것을 아는 사람이 만들어야 한다.
+
+### Verification
+
+```sh
+python3 template/setup.py --list-boards
+python3 -m unittest discover -s template/tests -t .
+python3 template/try_board.py NUCLEO-G071RB
+```
+
+확인할 항목:
+
+- 문서 절차만 따라 해서 지원 보드 빌드가 된다
+- 표에 적힌 보드와 `BOARDS`의 내용이 같다
+- 영/한 문서의 명령과 링크가 서로 같다 (사람이 확인)
+- 폴더를 옮긴 뒤에도 모든 테스트와 `try_board.py`가 그대로 통과한다
+- 첫 설정을 마치고 `template/`을 지운 사본에서 configure와 빌드가 성공한다
+- 최상위에 `tools/`와 `tests/`가 없다
+- 문서에 옛 경로(`tools/setup.py`, `tools/try_board.py`)가 남아 있지 않다
+
+보드가 있으면 `--flash`로 UART 출력까지 확인한다. 없으면 생략한다.
 
 ### Progress
 
@@ -871,113 +570,50 @@ VS Code → Run and Debug → image 선택 또는 dual-core compound
 - [ ] Chip-verified / N/A confirmed
 - [ ] Committed by user
 
-## Stage 10 — build와 dependency 경량화
+## Stage 6 — 이름을 바꾸면 경로도 따라오게
 
 우선순위: P2
 
-### What
-
-- 모든 HAL/LL source를 컴파일하는 방식에서 활성 module 또는 명시적 target 기반으로
-  전환한다.
-- CMSIS-Core와 FreeRTOS submodule의 shallow/on-demand 정책을 정한다.
-- `RTOS=none`일 때 FreeRTOS를 clone하거나 초기화하지 않는다.
-- 가벼운 범용 템플릿을 우선한다면 bare-metal을 기본값으로 바꿀지 결정한다.
-- build step 수와 clone/download 크기를 CI metric으로 기록한다.
-
-### Why
-
-현재 Hello World build도 H743에서 약 135 step이 필요하고, 두 기본 submodule의 Git
-history만 약 220 MB다. correctness와 회귀 검사를 먼저 확보한 뒤 최적화해야 한다.
-
-### Verification
-
-Self-verification:
-
-```sh
-python3 tools/try_board.py NUCLEO-G071RB
-python3 tools/try_board.py NUCLEO-F411RE
-python3 tools/try_board.py CoreH743I
-du -sh .git/modules/lib/* lib/*
-cmake --build --preset default --clean-first -v
-```
-
-검증 항목:
-
-- 세 대표 target의 ELF size와 runtime 동작에 의도하지 않은 변화가 없음
-- HAL/LL compile step 수 감소
-- `RTOS=none` clone에서 FreeRTOS 불필요
-- fresh clone의 download 크기와 시간이 기준선보다 감소
-
-On-chip verification:
-
-Stage 2에서 사용한 보드에서 bare-metal과 FreeRTOS를 각각 flash한다.
-
-- bare-metal/FreeRTOS 두 build variant 모두 UART `Hello, World!` 출력
-- bare-metal은 1초마다 `tick` 증가
-- FreeRTOS는 `tick`과 free heap 출력
-- Flash/RAM 사용량 before/after 비교 자료 보관
-
-### Progress
-
-- [ ] Implemented
-- [ ] Self-verified
-- [ ] Reported
-- [ ] Chip-verified / N/A confirmed
-- [ ] Committed by user
-
-## Stage 11 — 설정 UX와 문서 마무리
-
-우선순위: P2
+**한 줄 요약**: 프로젝트 이름을 바꿔도 손으로 맞출 곳이 없고, `clean`이 예전
+산출물을 남기지 않는다.
 
 ### What
 
-- console을 선택 기능으로 만들고 `CONSOLE=none`을 지원한다.
-- 서로 다른 alternate function을 표현하도록 `CONSOLE_TX_AF`와 `CONSOLE_RX_AF`를
-  분리한다.
-- CMake target에 실제 C standard를 지정해 VS Code의 C17 설정과 일치시킨다.
-- `PROJECT_NAME`과 output 이름을 한 곳에서 관리한다.
-- Quick Start는 atomic target 명령을 중심으로 5분 이내 절차로 줄인다.
-- 기본 Quick Start는 image-target 내부 구조를 몰라도 single-image project를 사용할 수
-  있게 유지한다.
-- 별도 advanced guide에 bootloader/application과 CM7/CM4 설정 예제를 제공한다.
-- README에서 dual-core와 image 수를 동일시하지 않고 SMP 단일-image, AMP 복수-image,
-  combined 배포 artifact의 차이를 설명한다.
-- 긴 GitHub template 유지보수 설명은 별도 문서로 이동한다.
-- README 첫 부분에 현재 템플릿과 CubeMX 형제 템플릿의 선택표를 둔다.
-- “수정할 유일한 파일”을 “하드웨어 build 설정의 기준 파일”로 정확하게 바꾼다.
-- English/Korean 문서의 heading, command, link parity를 CI에서 검사한다.
+- `.vscode/launch.json`에 박혀 있는 `build/stm32-template.elf`를 없앤다.
+- `PROJECT_NAME`과 출력 파일 이름을 한 곳에서만 정한다.
+- `.bin`, `.hex`, `.map`을 CMake에 산출물로 등록해 `clean`이 지우게 한다.
+- custom command에 `VERBATIM`을 붙인다.
+- 여기서 설정을 늘리지 않는다. `CONSOLE=none`이나 TX/RX AF 분리는 넣지 않는다.
+
+### 예상 변경 파일
+
+- `CMakeLists.txt`
+- `cmake/stm32.cmake`
+- `.vscode/launch.json`
+- `.vscode/tasks.json`
 
 ### Why
 
-현재 Quick Start와 상세 retarget 절차가 다르고, project 이름·ELF·OpenOCD 설정을
-여러 파일에서 수동으로 맞춰야 한다. 안정화 이후 첫 사용 경험과 문서의 약속을
-실제 동작에 맞춘다.
+지금은 프로젝트 이름을 바꾸면 `CMakeLists.txt`와 `launch.json` 두 군데를 손으로
+맞춰야 한다. 하나를 잊으면 디버거가 예전 이름의 파일을 찾는다. 그리고 `clean`
+뒤에도 `.bin`이 남아 있어서, 빌드에 실패한 줄 모르고 **예전 파일을 플래시할 수
+있다.**
 
 ### Verification
 
-Self-verification:
-
 ```sh
-python3 -m unittest tests.test_docs tests.test_console_config
-python3 tools/try_board.py NUCLEO-G071RB
 cmake --preset default
 cmake --build --preset default
+cmake --build --preset default --target clean
+ls build
 ```
 
-검증 시나리오:
+확인할 항목:
 
-- 새 사용자가 Quick Start만 따라 supported board build 성공
-- single-image, bootloader/application, CM7/CM4 문서 예제가 실제 configure test를 통과
-- console disabled build 성공
-- TX/RX가 다른 AF인 fixture가 올바른 macro 생성
-- project rename 후 build/flash/debug 경로가 함께 변경
-- English/Korean command와 내부 link 검사 통과
+- `clean` 뒤에 `.elf`, `.bin`, `.hex`, `.map`이 모두 없다
+- 프로젝트 이름을 바꾸면 빌드/플래시/디버그 경로가 함께 바뀐다
 
-On-chip verification:
-
-- console enabled image에서 정상 UART 출력
-- console disabled image가 UART 없이 main loop 또는 RTOS scheduler 진입
-- debugger에서 `startup_error == 0` 확인
+보드가 있으면 플래시와 디버거 진입까지 확인한다.
 
 ### Progress
 
@@ -987,36 +623,118 @@ On-chip verification:
 - [ ] Chip-verified / N/A confirmed
 - [ ] Committed by user
 
-## 7. 단계 운영 규칙
+## Stage 7 — CI (선택)
 
-각 Stage는 다음 순서로만 진행한다.
+우선순위: P2
+
+**한 줄 요약**: PR마다 자동으로 테스트와 빌드를 돌린다. 넣지 않아도 나머지
+단계는 성립한다.
+
+큰 변경을 여러 번 하는 동안 대표 보드 빌드가 계속 통과하는지 자동으로 보고 싶을
+때만 넣는다.
+
+### What
+
+- workflow 파일 하나에 job 하나만 둔다. Linux에서
+  `python3 -m unittest discover -s template/tests -t .`,
+  `python3 template/setup.py --self-test`,
+  `python3 template/try_board.py NUCLEO-G071RB`.
+- Windows job은 넣지 않는다. `doctor`가 사라지면서 Windows에서만 도는 코드가 `PY`
+  변수와 `tasks.json`의 명령 오버라이드 정도로 줄었다. `--self-test`만 돌리자고
+  job을 하나 더 둘 값이 없다. Windows에서 깨지는 것이 실제로 나오면 그때 넣는다.
+- 이 workflow는 **템플릿 저장소에서만 돌아야 한다.** 생성된 프로젝트로 복사되어도
+  조용히 넘어가도록 job에 조건을 건다.
+
+  ```yaml
+  if: github.repository == 'David-Nam/stm32-vscode-template'
+  ```
+
+  이게 없으면 G071을 쓰지도 않는 남의 프로젝트에서 서브모듈을 받고 빌드하다
+  실패한다.
+- 그 이상(format/static check, 여러 보드 matrix, 예약 실행)은 넣지 않는다.
+
+### 예상 변경 파일
+
+- `.github/workflows/ci.yml`
+
+### Verification
+
+- 새로 clone한 상태에서 job이 통과한다
+- 일부러 넣은 회귀가 job을 실패시킨다
+- 저장소 이름이 다르면 job이 실행되지 않는다
+
+보드 없이 확인 가능하다. CI는 하드웨어 확인을 대체하지 않는다.
+
+### Progress
+
+- [ ] Implemented
+- [ ] Self-verified
+- [ ] Reported
+- [ ] Chip-verified / N/A confirmed
+- [ ] Committed by user
+
+## 7. 하지 않기로 한 것
+
+다시 논의하지 않기 위해 이유와 함께 남긴다. 필요해지는 시점에 그때의 요구로
+다시 판단한다.
+
+- **서로 다른 코어를 가진 멀티코어 지원**: H745/H747/H755/H757, WL54/WL55.
+  image target 구조, core별 build context, shared memory와 IPC 계약이 전부
+  따라온다. 근거는 `docs/unsupported-mcu.md`에 있다.
+- **bootloader + application 복수 image, combined HEX**: 필요해진 적이 없다.
+- **내장 Flash가 없거나 boot flash만 있는 MCU, Cortex-A 계열, STM32F1,
+  TrustZone, HAL2/STM32C5**: `docs/unsupported-mcu.md` 참고.
+- **dependency lock과 `--frozen`**: 인터넷 없는 환경을 전제하지 않는다.
+  빌드는 이미 네트워크 없이 되고, 칩을 바꿀 때는 어차피 HAL을 받아야 한다.
+- **HAL 모듈 선별 컴파일**: 원칙 3과 충돌한다. `--gc-sections`가 이미 버린다.
+- **`CONSOLE=none`, `CONSOLE_TX_AF`/`CONSOLE_RX_AF` 분리**: 옵션만 늘어난다.
+- **STM32Cube 통짜 저장소 사용**: H7 기준 790 MB이고 하위 submodule 51개의 껍데기라
+  정작 필요한 두 디렉터리가 비어서 온다. split 저장소 두 개로 같은 파일을 13 MB에
+  얻는다.
+- **예제 링커 스크립트를 메모리 값의 소스로 사용**: IDE 생성물이고 ST
+  평가보드 품번만 있다. STM32CubeF4의 `.ld` 1,171개가 품번 기준으로는 30종뿐이다.
+- **호스트 도구 점검(`doctor`)**: 빌드는 `find_program(... REQUIRED)`로 이미
+  명확히 실패하고, Windows 경로 주의사항은 `config.cmake` 주석에 있다. 팀 온보딩
+  점검은 그 팀의 OS와 CI를 아는 프로젝트가 만든다.
+- **`setup.py add` 같은 라이브러리 관리 명령**: 개발 중에 쓰는 명령인데 그때
+  `setup.py`는 이미 없다. `git submodule add` 한 줄과 `config.cmake` 한 줄이면
+  되고, 필요한 것은 목록이라 문서로 남긴다.
+- **칩이나 보드 재설정 명령**: 칩이 바뀌면 다른 프로젝트이고 보드가 바뀌어도 다른
+  프로젝트다. 설정 도중 꼬이면 폴더를 지우고 다시 받는다. 코드를 쓴 뒤라면 두
+  파일을 직접 고친다.
+- **문서 영/한 일치를 CI로 검사**: 사람이 맞춘다.
+
+## 8. 단계 운영 규칙
 
 1. 현재 Stage 범위만 구현한다.
 2. 문서에 정의한 self-verification을 실행한다.
 3. 변경 파일, 실제 검증 명령과 출력, 남은 hardware 검증을 보고한다.
 4. hardware 검증이 있으면 사용자가 실행한 결과를 확인한다.
-5. 사용자가 결과를 승인한 뒤 사용자가 직접 stage/commit한다.
+5. 사용자가 승인한 뒤 사용자가 직접 stage/commit한다.
 6. 이 문서의 Progress checkbox를 갱신한다.
 7. 사용자가 다음 Stage 진행을 명시적으로 요청할 때만 넘어간다.
 
-한 Stage의 검증이 실패하면 다음 Stage로 넘어가지 않는다. 여러 Stage를 하나의
-commit으로 합치지 않는다.
+한 Stage의 검증이 실패하면 다음으로 넘어가지 않는다. 여러 Stage를 한 commit으로
+합치지 않는다.
 
-## 8. 전체 완료 조건
+모든 Stage가 끝나면 이 문서를 삭제한다. 단계별 What/Why/Verification은 git
+히스토리에 남으므로 따로 보관할 이유가 없다. 다만 §7 "하지 않기로 한 것"은 계획이
+끝난 뒤에도 유효하므로 `template/README.md`로 옮긴 다음 삭제한다. 그 목록이
+사라지면 듀얼코어나 STM32Cube 통짜 같은 논의가 근거 없이 다시 시작된다.
 
-- 타깃 변경으로 stale FAMILY/CPU/memory 값이 남을 수 없음
-- CMSIS-Pack의 복수 processor가 덮어써지지 않고 device topology로 보존됨
-- 현재 단계에서 지원하지 않는 target/context가 repository 변경 전에 명확하게 실패
-- 테스트 도구가 기존 경로를 삭제하지 않음
-- `setup.py add cube`와 암묵적 recursive library build가 없음
-- 기존 single-core application이 image target 하나로 회귀 없이 build됨
-- bootloader/application의 Flash slot, overlap, VTOR와 jump 계약이 검증됨
-- STM32H7 CM7/CM4가 core별 flags/startup/linker/ELF로 build되고 실제 board에서 IPC 검증됨
-- `.elf/.bin/.hex/.map`과 combined HEX 생성, clean/flash dependency가 CMake graph에 포함
-- image별 및 전체 build, flash, debug가 manifest의 동일한 target/ELF/address를 사용
-- dependency lock으로 offline frozen build 가능
-- 대표 M0+/M4F/M7 single-image, bootloader/application, H7 CM7/CM4 build와 negative
-  capability test가 CI에서 동작
-- hardware 검증이 필요한 Stage의 log와 결과가 보관됨
-- README가 SMP/AMP, 실행 image와 combined 배포 artifact를 정확히 구분함
-- README의 현재 지원 범위와 실제 setup/build 동작이 일치
+## 9. 전체 완료 조건
+
+- `setup.py`가 첫 설정 한 번만 돌고, 다시 실행하면 거부한다.
+- 지원 밖 MCU는 저장소를 바꾸기 전에 이유와 함께 실패하고, 그 목록이
+  `docs/unsupported-mcu.md`에 근거와 함께 있다.
+- 쓰지 않는 명령과 ignore 규칙이 남지 않는다.
+- 템플릿이 빈 설정으로 출하되고, 첫 명령이 칩 선택이다.
+- 첫 설정이 그 패밀리의 ST 라이브러리 목록을 `docs/`에 남긴다.
+- 템플릿에서만 쓰는 것이 `template/` 한 폴더에 모여 있고, 체크리스트의 삭제
+  안내가 한 줄이다. `CLAUDE.md`는 아예 복사되지 않는다.
+- 루트에 `tools/`와 `tests/`가 없어 프로젝트가 두 이름을 자기 것으로 쓸 수 있다.
+- CI 워크플로가 생성된 프로젝트에서 실행되지 않는다.
+- 새 보드 추가 절차가 문서 한 곳에 있고, 그대로 따라 build가 된다.
+- 프로젝트 이름을 바꾸면 build/flash/debug 경로가 함께 바뀌고, `clean`이 모든
+  산출물을 지운다.
+- README 양 언어의 지원 범위가 실제 `setup.py`/build 동작과 일치한다.
